@@ -13,36 +13,47 @@ from .names import AGGREGATES, canonical, display, slug
 
 FACT_COLS = ["departures", "hours", "kms_thousand", "pax", "pax_km_million", "ask_million",
              "freight_t", "mail_t", "cargo_t", "tkm_total_million", "atk_million"]
-MONTH_NAMES = {"APR": "Apr", "MAY": "May", "JUN": "Jun", "JUL": "Jul", "AUG": "Aug", "SEP": "Sep", "OCT": "Oct",
+_UNUSED_MONTH_NAMES = {"APR": "Apr", "MAY": "May", "JUN": "Jun", "JUL": "Jul", "AUG": "Aug", "SEP": "Sep", "OCT": "Oct",
                "NOV": "Nov", "DEC": "Dec", "JAN": "Jan", "FEB": "Feb", "MAR": "Mar"}
-FY_ORDER = list(MONTH_NAMES)  # April-first
 
 
 def load_parsed(man: pd.DataFrame) -> pd.DataFrame:
-    ok = man[(man.parse_status == "ok") & man.apply(lambda r: dataset_for(r["title"], r["ext"]) is not None, axis=1)]
+    ok = man[(man.parse_status == "ok") & man.apply(lambda r: dataset_for(r["title"], r["ext"], r["portal_path"]) is not None, axis=1)]
     frames = []
     for _, r in ok.iterrows():
         f = config.INTERIM / "airline_monthly" / f"{r.content_sha256}.parquet"
         if f.exists():
             d = pd.read_parquet(f)
+            if d.empty:
+                continue
+            if "period" not in d.columns:                       # fiscal-year tables: APR..MAR within a fiscal year
+                y0 = d.fy.str[:4].astype(int)
+                mon = d.month.map({m: i for i, m in enumerate("JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split(), 1)})
+                d["period"] = pd.to_datetime(dict(year=y0 + (mon < 4).astype(int), month=mon, day=1))
+                d["provisional"] = False
+            d["period"] = pd.to_datetime(d["period"])
             d["first_seen"], d["last_modified"] = r.first_seen, r.last_modified
-            frames.append(d)
+            frames.append(d[["entity", "segment", "period", "provisional", *FACT_COLS, "file_sha256", "first_seen", "last_modified"]])
     if not frames:
         raise SystemExit("nothing parsed yet: run `dgca parse`")
     return pd.concat(frames, ignore_index=True)
 
 
 def dedupe(d: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Row-level dedupe on the natural key. Newest-published file wins; value disagreements are logged."""
-    key = ["airline_key", "fy", "segment", "month"]
-    d = d.sort_values(["first_seen", "file_sha256"], kind="stable")
-    dup = d[d.duplicated(key, keep=False)]
+    """Row-level dedupe on the natural key (airline, month, segment).
+
+    The fiscal-year tables (final) and the calendar-year series (often provisional) overlap on Jan 2015 - Mar 2019.
+    Precedence: final over provisional, then most recently published. Real disagreements are logged, not hidden."""
+    key = ["airline_key", "period", "segment"]
+    d = d.assign(_prov=d.provisional.astype(int)).sort_values(["_prov", "first_seen", "file_sha256"], ascending=[True, False, True], kind="stable")  # final first, then newest
     conflicts = []
-    for k, g in dup.groupby(key):
-        vals = g[FACT_COLS].round(6).drop_duplicates()
-        if len(vals) > 1:
-            conflicts.append(g.assign(resolution="kept newest"))
-    out = d.drop_duplicates(key, keep="last")
+    for _, g in d[d.duplicated(key, keep=False)].groupby(key):
+        a = g[FACT_COLS].astype(float)
+        spread = (a.max() - a.min()).abs()
+        scale = a.abs().max().clip(lower=1)
+        if ((spread > 0.5) & (spread / scale > 1e-3)).any():
+            conflicts.append(g.assign(resolution="kept final/newest"))
+    out = d.drop_duplicates(key, keep="first").drop(columns="_prov")
     return out, (pd.concat(conflicts) if conflicts else pd.DataFrame(columns=list(d.columns) + ["resolution"]))
 
 
@@ -55,43 +66,46 @@ def build(man: pd.DataFrame) -> dict:
     n_dupes = n_in - len(d)
 
     # --- dimensions
-    ents = d.groupby(["airline_key", "entity_key"]).fy.agg(["min", "max"]).reset_index()
+    d["fy_start"] = d.period.dt.year - (d.period.dt.month < 4).astype(int)
+    d["fy"] = d.fy_start.astype(str) + "-" + ((d.fy_start + 1) % 100).astype(str).str.zfill(2)
+    ents = d.groupby(["airline_key", "entity_key"]).period.agg(["min", "max"]).reset_index()
     dim_airline = pd.DataFrame({
         "airline_key": ents.airline_key,
         "airline": ents.entity_key.map(display),
         "airline_type": ents.entity_key.map(lambda k: "Aggregate" if k in AGGREGATES else "Airline"),
-        "first_fy": ents["min"], "last_fy": ents["max"],
+        "first_month": ents["min"].dt.date, "last_month": ents["max"].dt.date,
     }).sort_values(["airline_type", "airline"]).reset_index(drop=True)
 
-    periods = d[["fy", "month"]].drop_duplicates()
-    rows = []
-    for fy in sorted(periods.fy.unique()):
-        y0 = int(fy[:4])
-        for i, m in enumerate(FY_ORDER, 1):
-            cal_year = y0 if i <= 9 else y0 + 1
-            cal_month = (i + 2) % 12 + 1
-            rows.append({"period_key": cal_year * 100 + cal_month, "period": pd.Timestamp(cal_year, cal_month, 1).date(),
-                         "fy": fy, "fy_start_year": y0, "quarter": f"{fy} Q{(i - 1) // 3 + 1}", "month_name": MONTH_NAMES[m],
-                         "fy_month_num": i, "calendar_year": cal_year, "_m": m})
-    dim_period = pd.DataFrame(rows)
+    per = pd.DataFrame({"period": sorted(d.period.unique())})
+    per["fy_start_year"] = per.period.dt.year - (per.period.dt.month < 4).astype(int)
+    per["fy"] = per.fy_start_year.astype(str) + "-" + ((per.fy_start_year + 1) % 100).astype(str).str.zfill(2)
+    per["fy_month_num"] = (per.period.dt.month - 4) % 12 + 1
+    per["quarter"] = per.fy + " Q" + ((per.fy_month_num - 1) // 3 + 1).astype(str)
+    months_in_fy = per.groupby("fy").period.transform("count")
+    per["fy"] = per.fy.where(months_in_fy >= 12, per.fy + " (YTD)")        # a partial fiscal year must not read as a collapse
+    per["month_name"] = per.period.dt.strftime("%b")
+    per["calendar_year"] = per.period.dt.year
+    per["period_key"] = per.period.dt.year * 100 + per.period.dt.month
+    per["period"] = per.period.dt.date
+    dim_period = per[["period_key", "period", "fy", "fy_start_year", "quarter", "month_name", "fy_month_num", "calendar_year"]]
     dim_segment = pd.DataFrame({"segment_key": [1, 2], "segment": ["Domestic", "International"]})
 
     # --- fact
     seg_key = {"domestic": 1, "international": 2}
-    pk = dim_period.set_index(["fy", "_m"]).period_key
     fact = pd.DataFrame({
         "airline_key": d.airline_key.values,
-        "period_key": [pk[(fy, m)] for fy, m in zip(d.fy, d.month)],
+        "period_key": (d.period.dt.year * 100 + d.period.dt.month).values,
         "segment_key": d.segment.map(seg_key).values,
         **{c: d[c].values for c in FACT_COLS},
+        "provisional": d.provisional.astype(bool).values,
         "source_sha": d.file_sha256.str[:12].values,
     }).sort_values(["period_key", "airline_key", "segment_key"]).reset_index(drop=True)
-    dim_period = dim_period.drop(columns="_m")
-    present = set(fact.period_key)
-    dim_period = dim_period[dim_period.period_key.isin(present)].reset_index(drop=True)
 
     h = hashlib.sha256(pd.util.hash_pandas_object(fact, index=False).values.tobytes())
     h.update(pd.util.hash_pandas_object(man[["s3_url", "title", "status", "parse_status"]].astype(str), index=False).values.tobytes())
+    for dim in (dim_airline, dim_period, dim_segment):   # any change to published tables must change the version (cache busting)
+        h.update(pd.util.hash_pandas_object(dim.astype(str), index=False).values.tobytes())
+    h.update((config.ROOT / "semantic" / "semantic.yaml").read_bytes())
     sit = config.DATA / "site_tables.parquet"
     if sit.exists():
         h.update(pd.util.hash_pandas_object(pd.read_parquet(sit)[["table_sha"]], index=False).values.tobytes())
@@ -112,7 +126,7 @@ def build(man: pd.DataFrame) -> dict:
     (out / "catalog.json").write_text(json.dumps(catalog, indent=1))
 
     # --- provenance + conflicts
-    src = man[man.parse_status == "ok"][["content_sha256", "s3_url", "fy", "entity", "table_id", "last_modified"]].copy()
+    src = man[man.parse_status == "ok"][["content_sha256", "s3_url", "fy", "entity", "table_id", "title", "last_modified"]].copy()
     src["sha12"] = src.content_sha256.str[:12]
     (out / "sources.json").write_text(src.drop(columns="content_sha256").to_json(orient="records"))
     config.PROCESSED.mkdir(parents=True, exist_ok=True)

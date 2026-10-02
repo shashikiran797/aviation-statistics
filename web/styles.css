@@ -113,3 +113,5 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12p
 .cat-row:first-child{border-radius:12px 12px 0 0}.cat-row a,.cat-row button.lk{color:var(--accent);text-decoration:none;font-weight:600;background:none;border:0;padding:0;text-align:left;cursor:pointer}.cat-row .path{color:var(--text-3);font-size:12px}
 .pager{display:flex;gap:8px;align-items:center;margin:12px 0}
 .chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.chip.pick{cursor:pointer}
+
+[hidden]{display:none !important}

@@ -23,6 +23,9 @@ from ..http import _throttle, norm_url
 FILE_EXT = ("pdf", "xlsx", "xls", "csv", "zip", "doc", "docx", "ppt", "pptx", "xlsm", "odt", "rar", "txt", "jpg", "png")
 SERVICE_RE = re.compile(r"^(\d+)/(\d+)/servicename$")
 DYN_RE = re.compile(r"^(\w+)/(\d+)/(\d+)/(viewApplicationDtlsReq\w*)$")
+HTML_RE = re.compile(r"^(\w+)/(\d+)/(\d+)/html$")          # e.g. quat/4268/9661/html (quarterly stats)
+DYNRULE_RE = re.compile(r"^(\w+)/(\d+)/(\d+)/(viewDynamicRule\w*)$")   # circulars / acts lists
+ATTACH_RE = re.compile(r"^dynamicPdf/(.+)$")
 FORM = dict(screenId="10000001", classification="", attachId="", langType="1", baseLocale="")
 CACHE = config.DATA / "raw" / "_site"
 
@@ -35,6 +38,14 @@ def ext_of(path: str) -> str | None:
     last = path.split("?")[0].rsplit("/", 1)[-1]
     e = last.rsplit(".", 1)[-1].lower() if "." in last else ""
     return e if e in FILE_EXT else None
+
+
+def decode(b: bytes) -> str:
+    """Legacy pages are Windows-1252, newer ones UTF-8."""
+    try:
+        return b.decode("utf-8")
+    except UnicodeDecodeError:
+        return b.decode("cp1252", errors="replace")
 
 
 class Portal:
@@ -73,13 +84,41 @@ class Portal:
 
     def get(self, path: str, refresh=False):
         url = config.PORTAL + norm_url(path)
-        return self._cached("GET " + url, lambda: (lambda r: (r.status, r.text()))(self.ctx.request.get(url, timeout=60000)), refresh)
+        return self._cached("GET " + url, lambda: (lambda r: (r.status, decode(r.body())))(self.ctx.request.get(url, timeout=60000)), refresh)
 
     def scan(self, refresh=False, **fields):
         data = {**FORM, **fields}
         key = "POST " + json.dumps(data, sort_keys=True)
         hdr = {"X-Requested-With": "XMLHttpRequest", "Referer": config.PORTAL}
-        return self._cached(key, lambda: (lambda r: (r.status, r.text()))(self.ctx.request.post(config.PORTAL + "scan?", form=data, headers=hdr, timeout=60000)), refresh)
+        return self._cached(key, lambda: (lambda r: (r.status, decode(r.body())))(self.ctx.request.post(config.PORTAL + "scan?", form=data, headers=hdr, timeout=60000)), refresh)
+
+
+GENERIC = {"", "click", "click here", "here", "view", "download", "pdf", "excel", "xls", "xlsx", "open"}
+
+
+def _label(tag) -> str:
+    """Link text, or - for generic 'Click here' links - the other cells of its table row (e.g. operator name)."""
+    txt = " ".join(tag.get_text().split())
+    if txt.lower() in GENERIC:
+        tr = tag.find_parent("tr")
+        if tr:
+            parts = []
+            for td in tr.find_all("td"):
+                if td.find(attrs={"data-url": True}) or td.find("a", href=True):
+                    continue
+                t = " ".join(td.get_text().split())
+                if t and not re.fullmatch(r"[\d.]+", t):
+                    parts.append(t)
+            col = ""
+            td = tag.find_parent("td")
+            if td and tr.find_parent("table"):
+                heads = [" ".join(h.get_text().split()) for h in tr.find_parent("table").find_all("th")]
+                cells = tr.find_all("td")
+                if td in cells and len(heads) == len(cells):
+                    col = heads[cells.index(td)]
+            if parts:
+                return " ".join(parts) + (f" ({col})" if col and col.lower() not in GENERIC - {"pdf", "excel", "xls", "xlsx"} else "")
+    return txt
 
 
 def links_in(html: str, base: str = "") -> list[tuple[str, str]]:
@@ -87,15 +126,15 @@ def links_in(html: str, base: str = "") -> list[tuple[str, str]]:
     soup = BeautifulSoup(html, "lxml")
     out = []
     for t in soup.find_all(True, attrs={"data-url": True}):
-        out.append((t["data-url"].strip(), " ".join(t.get_text().split())))
+        out.append((t["data-url"].strip(), _label(t)))
     for t in soup.find_all(True, attrs={"url": True}):
-        out.append((t["url"].strip(), " ".join(t.get_text().split())))
+        out.append((t["url"].strip(), _label(t)))
     for a in soup.find_all("a", href=True):
         h = a["href"].strip()
         if h.startswith(("#", "javascript", "mailto", "tel")) or not h:
             continue
         if ext_of(h) or h.startswith("http"):
-            out.append((h, " ".join(a.get_text().split())))
+            out.append((h, _label(a)))
     return [(u, t) for u, t in out if u]
 
 
@@ -186,7 +225,27 @@ def crawl(portal: Portal, refresh=False, max_nodes=4000, max_depth=5, log=print)
                         files.append(dict(route=key, crumbs=crumbs, ext="pdf", dynamic=True))
                     else:
                         html = r["text"]
-            elif key.startswith("jsp/"):
+            elif m := HTML_RE.match(key):
+                svc = "getParentData" if m[1] == "yearly" else "fetchRulebookContentDtlsList"
+                r = portal.scan(refresh, requestType="ApplicationRH", actionVal="viewStaticData", ruleBookId=m[2], contentId=m[3], serviceName=svc, attr="")
+                rec.update(kind="rulebook", http_status=r["status"])
+                if r["status"] == 200:
+                    j = json.loads(r["text"])
+                    items = j.get("ruleBookContentDtlsList") or ([j] if j.get("contentText") else [])
+                    html, rec["status"] = "\n".join(i.get("contentText") or "" for i in items), "ok"
+                    if items and items[0].get("contentName"):
+                        rec["title"] = items[0]["contentName"]
+                        rec["content_name"] = items[0]["contentName"]
+            elif m := DYNRULE_RE.match(key):
+                svc = "fetchRulebookContentDtlsList" if "ContLvl2" in m[4] else ""
+                r = portal.scan(refresh, requestType="ApplicationRH", actionVal=m[4], ruleBookId=m[2], contentId=m[3], serviceName=svc, attr=m[1])
+                rec.update(kind="dynamic", http_status=r["status"])
+                if r["status"] == 200:
+                    html, rec["status"] = r["text"], "ok"
+            elif m := ATTACH_RE.match(key):
+                files.append(dict(route=key, crumbs=crumbs, ext="pdf", dynamic=True))
+                rec.update(kind="dynamic_pdf", status="ok")
+            elif key.startswith(("jsp/", "scan?")):
                 r = portal.get(key, refresh)
                 rec.update(kind="page", http_status=r["status"])
                 if r["status"] == 200:
@@ -221,7 +280,7 @@ def to_manifest_rows(files: list[dict]) -> list[dict]:
         title = crumbs[-1] if crumbs else route
         u = s3_url(route) if not f["dynamic"] else None
         if not u and f["dynamic"]:
-            u = "dgca-dynamic://" + route                           # stable identity; attachment token is session-bound
+            u = "dgca-dynamic://" + route                           # stable identity (tokens are deterministic AES values)
         elif not u:
             if route.startswith("http"):
                 u = route

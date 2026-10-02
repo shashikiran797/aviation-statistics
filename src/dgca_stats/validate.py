@@ -5,7 +5,7 @@ from .parse.registry import dataset_for
 
 
 def coverage(df: pd.DataFrame) -> str:
-    known = df[df.apply(lambda r: dataset_for(r["title"], r["ext"]) is not None, axis=1)]
+    known = df[df.apply(lambda r: dataset_for(r["title"], r["ext"], r["portal_path"]) is not None, axis=1)]
     if known.empty:
         return "no parseable files in manifest"
     t = known.pivot_table(index="fy", columns="parse_status", values="s3_url", aggfunc="count", fill_value=0)
@@ -16,7 +16,7 @@ def coverage(df: pd.DataFrame) -> str:
 
 def report(df: pd.DataFrame) -> int:
     print(coverage(df))
-    known = df[df.apply(lambda r: dataset_for(r["title"], r["ext"]) is not None, axis=1)]
+    known = df[df.apply(lambda r: dataset_for(r["title"], r["ext"], r["portal_path"]) is not None, axis=1)]
     bad = known[known.parse_status == "quarantined"]
     pending = known[(known.status == "downloaded") & (known.parse_status == "pending")]
     for _, r in bad.iterrows():

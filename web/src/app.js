@@ -27,8 +27,9 @@ async function boot() {
   S.db = await openDb(S.base, Object.keys(S.catalog.tables));
   const n = (await S.db.query("SELECT count(*) AS n, min(period) AS a, max(period) AS b FROM fact_airline_monthly JOIN dim_period USING(period_key)")).rows[0];
   const fys = S.catalog.dimensions.fy.values;
-  S.meta = { rows: n.n, from: fys[0], to: fys.at(-1), version: latest.version, built: latest.built_at };
-  $("#data-meta").textContent = `DGCA air traffic statistics · FY${fys[0]} to FY${fys.at(-1)} · ${n.n.toLocaleString()} rows · queried locally in your browser`;
+  const mon = (v) => new Date(v).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  S.meta = { rows: n.n, from: fys[0], to: fys.at(-1), version: latest.version, built: latest.built_at, first: mon(n.a), last: mon(n.b) };
+  $("#data-meta").textContent = `DGCA air traffic statistics · ${S.meta.first} – ${S.meta.last} (latest months provisional) · ${n.n.toLocaleString()} rows · queried locally in your browser`;
   S.dashboards = [...STARTERS, ...loadSaved()];
   const shared = decodeShare(location.hash);
   if (shared) { S.dashboards.push(shared.dash); S.filters = shared.filters; S.current = shared.dash.id; }
@@ -370,13 +371,13 @@ async function openTable(meta) {
 async function openSources() {
   const src = await (await fetch(`${S.base}/sources.json`)).json();
   const byFy = {};
-  for (const s of src) byFy[s.fy] = (byFy[s.fy] || 0) + 1;
+  for (const s of src) { const k = s.fy || "calendar-year monthly series"; byFy[k] = (byFy[k] || 0) + 1; }
   const t = tableFrom(["fiscal_year", "source_files_parsed"], Object.entries(byFy).sort().map(([fy, n]) => ({ fiscal_year: fy, source_files_parsed: n })));
-  const sample = src.slice(0, 8).map((s) => el("li", {}, el("a", { href: s.s3_url, target: "_blank", rel: "noopener", textContent: `${s.fy} · ${s.entity} · table ${s.table_id}` })));
+  const sample = src.filter((_, i) => i % Math.max(1, Math.floor(src.length / 8)) === 0).slice(0, 8).map((s) => el("li", {}, el("a", { href: s.s3_url, target: "_blank", rel: "noopener", textContent: s.table_id ? `${s.fy} · ${s.entity} · table ${s.table_id}` : (s.title || s.s3_url) })));
   openModal("Data sources & coverage", el("div", {},
     el("p", { textContent: `Source: DGCA India – Air Transport Statistics (monthly traffic and operating statistics, scheduled services, ICAO ATR Form A). ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
     t, el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
-    el("p", { className: "hint", textContent: "Older years (before FY2014-15) and non-scheduled/pdf-only tables are not yet ingested – see the repository plan." })));
+    el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, non-scheduled tables, city-pair traffic and PDF-only tables are in the catalog but not yet in the dashboards." })));
 }
 
 // ---------- AI panel

@@ -18,7 +18,23 @@ def select(df: pd.DataFrame, tables=None, exts=("xlsx",), fys=None) -> pd.Series
     return m
 
 
-def download(sess, df: pd.DataFrame, mask: pd.Series, force=False, log=print) -> dict:
+def dynamic_bytes(portal, route: str) -> tuple[int, bytes, dict]:
+    """Fetch a dynamic (token-addressed) attachment through the browser session."""
+    from urllib.parse import quote
+    from .site import DYN_RE
+    if route.startswith("dynamicPdf/"):
+        token = route[len("dynamicPdf/"):]
+    elif m := DYN_RE.match(route):
+        token = portal.scan(False, requestType="ApplicationRH", actionVal=m[4], ruleBookId=m[2], contentId=m[3], serviceName="", attr=m[1])["text"].strip()
+    else:
+        return 404, b"", {}
+    token = token if "%" in token else quote(token, safe="")
+    from .. import config as c
+    r = portal.ctx.request.get(c.PORTAL + "Upload?flag=iframeAttachView&attachId=" + token, timeout=120000)
+    return r.status, r.body(), dict(r.headers)
+
+
+def download(sess, df: pd.DataFrame, mask: pd.Series, force=False, log=print, portal=None) -> dict:
     stats = {"downloaded": 0, "not_modified": 0, "missing": 0, "error": 0, "dedup": 0}
     sha_first = {s: u for u, s in zip(df["s3_url"], df["content_sha256"]) if isinstance(s, str)}
     for i in df.index[mask]:
@@ -29,7 +45,13 @@ def download(sess, df: pd.DataFrame, mask: pd.Series, force=False, log=print) ->
             headers["If-None-Match"] = df.at[i, "etag"]
         try:
             _throttle()
-            r = sess.get(url, headers=headers, timeout=120)
+            if url.startswith("dgca-dynamic://"):
+                if portal is None:
+                    continue
+                st, body, hdrs = dynamic_bytes(portal, url[len("dgca-dynamic://"):])
+                r = type("R", (), {"status_code": st, "content": body, "headers": hdrs})()
+            else:
+                r = sess.get(url, headers=headers, timeout=120)
         except Exception as e:  # network failure: keep state, retry next run
             df.at[i, "status"], df.at[i, "error"] = "error", str(e)[:200]
             stats["error"] += 1

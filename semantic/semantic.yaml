@@ -7,7 +7,7 @@ facts:
     grain: airline x fiscal month x segment (domestic | international)
     description: >
       Scheduled traffic and operating statistics reported by Indian airlines to DGCA (ICAO ATR Form A).
-      Fiscal years run April-March. Rows for aggregate entities (ALL SCHEDULED INDIAN AIRLINES, national, private)
+      Fiscal years run April-March; the latest fiscal year is partial and recent months are provisional. Rows for aggregate entities (ALL SCHEDULED INDIAN AIRLINES, national, private)
       are totals of airlines and are excluded by default so nothing is double counted.
     joins:                       # dimension table alias -> [fact column, dim table, dim column]
       dim_airline: [airline_key, dim_airline, airline_key]

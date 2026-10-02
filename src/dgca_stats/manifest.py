@@ -52,6 +52,11 @@ def upsert(df: pd.DataFrame, found: list[dict]) -> tuple[pd.DataFrame, dict]:
             idx[rec["s3_url"]] = -1
         elif i >= 0:
             df.loc[df.index[i], "last_seen"] = ts
+            if str(df.at[df.index[i], "section"]).startswith("site/") and str(rec.get("section", "")).startswith("site/"):
+                # labels improve as the crawler gets smarter; never touch rows owned by a registered dataset section
+                for k in ("title", "entity", "fy"):
+                    if rec.get(k):
+                        df.loc[df.index[i], k] = rec[k]
             seen += 1
     if new_rows:
         add = pd.DataFrame(new_rows).astype(COLUMNS)

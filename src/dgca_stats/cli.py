@@ -24,11 +24,21 @@ def cmd_crawl(a):
 
 def cmd_download(a):
     df = manifest.load()
-    known = df.apply(lambda r: dataset_for(r["title"], r["ext"]) is not None, axis=1)
+    known = df.apply(lambda r: dataset_for(r["title"], r["ext"], r["portal_path"]) is not None, axis=1)
+    if a.section:   # opt-in bulk download of other sections, e.g. --section site/data_reports --ext xlsx,zip
+        exts = set(a.ext.split(",")) if a.ext else {"xlsx", "xls", "xlsm", "csv", "zip"}
+        known = df["section"].str.startswith(a.section, na=False) & df["ext"].isin(exts)
+        if a.match:
+            known &= df["title"].str.contains(a.match, case=False, na=False) | df["entity"].str.contains(a.match, case=False, na=False)
     mask = known & df["fy"].isin(a.years.split(",")) if a.years else known
     if a.retry_missing is False:
         mask &= df["status"] != "missing"
-    dl.download(http.session(), df, mask, force=a.force)
+    if mask.any() and df.loc[mask, "s3_url"].str.startswith("dgca-dynamic://").any():
+        from .crawl.site import Portal
+        with Portal() as portal:
+            dl.download(http.session(), df, mask, force=a.force, portal=portal)
+    else:
+        dl.download(http.session(), df, mask, force=a.force)
     manifest.save(df)
 
 
@@ -100,7 +110,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="dgca")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("crawl", help="discover files into the manifest"); s.add_argument("--years"); s.add_argument("--refresh", action="store_true"); s.set_defaults(f=cmd_crawl)
-    s = sub.add_parser("download", help="fetch parseable files (skips unchanged)"); s.add_argument("--years"); s.add_argument("--force", action="store_true"); s.add_argument("--retry-missing", action="store_true"); s.set_defaults(f=cmd_download)
+    s = sub.add_parser("download", help="fetch parseable files (skips unchanged)"); s.add_argument("--years"); s.add_argument("--section", help="bulk: manifest section prefix, e.g. site/data_reports"); s.add_argument("--ext"); s.add_argument("--match", help="bulk: only titles/paths containing this text"); s.add_argument("--force", action="store_true"); s.add_argument("--retry-missing", action="store_true"); s.set_defaults(f=cmd_download)
     s = sub.add_parser("parse", help="parse pending files; failures go to data/quarantine"); s.add_argument("--all", action="store_true"); s.set_defaults(f=cmd_parse)
     sub.add_parser("validate", help="check coverage and cross-checks; non-zero exit on problems").set_defaults(f=cmd_validate)
     sub.add_parser("publish", help="build parquet + semantic catalog into web/data").set_defaults(f=cmd_publish)

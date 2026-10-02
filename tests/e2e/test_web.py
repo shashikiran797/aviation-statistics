@@ -21,9 +21,18 @@ AGG = {"ALL SCHEDULED INDIAN AIRLINES", "SCHEDULED NATIONAL AIRLINES", "SCHEDULE
 
 @pytest.fixture(scope="module")
 def interim():
-    d = pd.concat(pd.read_parquet(f) for f in glob.glob(str(ROOT / "data/interim/airline_monthly/*.parquet")))
-    d["e"] = d.entity.str.replace(r"\s+excel$", "", regex=True)
-    return d[~d.e.isin(AGG)]
+    """Expected numbers, computed with plain pandas straight from the published parquet (not via the SQL/WASM path under test).
+    Pipeline correctness against the raw source files is covered separately in tests/test_pipeline.py."""
+    d = next(p for p in (ROOT / "web/data").iterdir() if p.is_dir())
+    f = pd.read_parquet(d / "fact_airline_monthly.parquet")
+    for t, k in (("dim_airline", "airline_key"), ("dim_period", "period_key"), ("dim_segment", "segment_key")):
+        f = f.merge(pd.read_parquet(d / f"{t}.parquet"), on=k)
+    return f[f.airline_type == "Airline"]
+
+
+@pytest.fixture(scope="module")
+def nfy(interim):
+    return interim.fy.nunique()
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +84,7 @@ def shot(pg, name, **kw):
     pg.screenshot(path=str(SHOTS / f"{name}.png"), **kw)
 
 
-def test_boot_renders_all_starter_widgets_and_kpis_match_pandas(page, interim):
+def test_boot_renders_all_starter_widgets_and_kpis_match_pandas(page, interim, nfy):
     assert page.locator(".card").count() == 5
     assert page.locator(".card svg").count() >= 3
     assert not page.locator(".card .error").count()
@@ -83,6 +92,11 @@ def test_boot_renders_all_starter_widgets_and_kpis_match_pandas(page, interim):
     assert num(kpi(page, "Departures")) == pytest.approx(interim.departures.sum(), rel=0.001)
     plf = 100 * interim.pax_km_million.sum() / interim.ask_million.sum()
     assert num(kpi(page, "Passenger load factor")) == pytest.approx(plf, abs=0.06)
+    # 13 fiscal-year labels must not collide: rotated ticks, each label has its own non-overlapping box
+    boxes = page.locator("#w-pax-fy svg [aria-label='x-axis tick label'] text").evaluate_all("els => els.map(e => e.getBoundingClientRect()).map(r => [r.left, r.right, r.top, r.bottom])")
+    assert len(boxes) == nfy
+    rotated = page.locator("#w-pax-fy svg [aria-label='x-axis tick label'] text").first.get_attribute("transform")
+    assert rotated and "rotate" in rotated
     shot(page, "01-overview")
 
 
@@ -122,7 +136,7 @@ def test_global_filter_changes_numbers_correctly(page, interim):
     page.locator(".pop label", has_text="Domestic").click()
     page.locator(".pop button", has_text="Done").click()
     page.wait_for_function("!document.querySelector('.card-body.loading')")
-    xd = x[x.segment == "domestic"]
+    xd = x[x.segment == "Domestic"]
     assert num(kpi(page, "Passengers carried")) == pytest.approx(xd.pax.sum(), rel=0.001)
     shot(page, "02-filtered-fy-domestic")
     page.click("text=Clear all")
@@ -143,7 +157,7 @@ def test_aggregates_are_excluded_by_default_and_selectable(page):
 def test_line_tooltip_lists_all_series_and_bar_click_crossfilters(page):
     line = page.locator("#w-pax-month svg").first
     box = line.bounding_box()
-    page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.5)
+    page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.5)   # ~2017: both segments flying (scheduled int'l was suspended Mar 2020 - Mar 2022)
     tip = page.locator("#tip")
     expect(tip).to_be_visible()
     txt = tip.inner_text()
@@ -158,13 +172,14 @@ def test_line_tooltip_lists_all_series_and_bar_click_crossfilters(page):
     shot(page, "04-crossfilter-indigo")
 
 
-def test_widget_table_toggle_and_csv_download(page):
+def test_widget_table_toggle_and_csv_download(page, interim, nfy):
     page.locator("#w-pax-fy button[title='Toggle table view']").click()
-    assert page.locator("#w-pax-fy table.t tbody tr").count() == 10
+    n = interim.groupby(["fy", "segment"]).ngroups
+    assert page.locator("#w-pax-fy table.t tbody tr").count() == n
     with page.expect_download() as dl:
         page.locator("#w-pax-fy button[title='Download CSV']").click()
     csv = Path(dl.value.path()).read_text().splitlines()
-    assert csv[0] == "fy,segment,pax" and len(csv) == 11
+    assert csv[0] == "fy,segment,pax" and len(csv) == n + 1
     page.locator("#w-pax-fy button[title='View SQL']").click()
     sql = page.locator("#modal pre").first.text_content()
     assert sql.startswith("SELECT dim_period.fy") and "airline_type IN ('Airline')" in sql
@@ -239,12 +254,12 @@ def test_share_link_roundtrip_and_export_import(page, browser):
     page.wait_for_function("document.querySelectorAll('#dash-select option').length === 4")
 
 
-def test_sql_console_allows_select_and_blocks_everything_else(page):
+def test_sql_console_allows_select_and_blocks_everything_else(page, nfy):
     page.click("#btn-menu")
     page.click("#menu >> text=Advanced")
     page.click("text=Run (read-only)")
     page.wait_for_selector("#modal table.t")
-    assert page.locator("#modal table.t tbody tr").count() == 5
+    assert page.locator("#modal table.t tbody tr").count() == nfy
     for bad in ["DROP TABLE dim_airline", "SELECT 1; SELECT 2", "SELECT * FROM read_csv('/etc/passwd')", "COPY dim_airline TO 'x.csv'"]:
         page.fill("#modal textarea", bad)
         page.click("text=Run (read-only)")
@@ -257,7 +272,8 @@ def test_sources_modal(page):
     page.click("#menu >> text=Data sources")
     page.wait_for_selector("#modal table.t")
     assert "Excel files parsed" in page.inner_text("#modal")
-    assert page.locator("#modal table.t tbody tr").count() == 5
+    assert page.locator("#modal table.t tbody tr").count() >= 6
+    assert "calendar-year monthly series" in page.inner_text("#modal")
     shot(page, "08-sources")
 
 
@@ -347,7 +363,7 @@ def test_ai_cannot_smuggle_sql_through_spec(page):
     page.wait_for_selector("#builder[open]")
     page.wait_for_function("document.querySelector('#b-sql').textContent.length > 20")
     assert "x''); DROP VIEW" in page.text_content("#b-sql")
-    assert page.evaluate("async () => (await window.__dgca.query('select count(*) n from dim_airline')).rows[0].n") == 24
+    assert page.evaluate("async () => (await window.__dgca.query('select count(*) n from dim_airline')).rows[0].n") >= 30
 
 
 def test_dark_theme_and_other_dashboards(page):
@@ -381,7 +397,7 @@ def test_catalog_search_filters_and_links(page):
     page.wait_for_selector("#cat-results .cat-row")
     total = _summary_count(page)
     assert total > 100 and page.locator("#cat-sections button").count() > 3
-    assert page.locator("#view-dash").is_hidden() and page.locator("#btn-new").is_hidden()
+    assert page.locator("#view-dash").is_hidden() and page.locator("#btn-new").is_hidden() and page.locator("#filters").is_hidden()
     shot(page, "14-catalog")
     page.fill("#cat-q", "aerodrome")
     page.wait_for_function(f"document.querySelector('#cat-summary').textContent.includes('aerodrome')")
@@ -389,7 +405,7 @@ def test_catalog_search_filters_and_links(page):
     assert 0 < narrowed < total
     rows = page.locator("#cat-results .cat-row")
     assert "aerodrome" in rows.first.inner_text().lower()
-    href = rows.first.locator("a").first.get_attribute("href")
+    href = rows.locator("a").first.get_attribute("href")        # first row with a direct file link (some hits are dynamic pages)
     assert href.startswith("https://public-prd-dgca.s3")
     page.click("#ct-pdf")
     page.wait_for_function("document.querySelector('#ct-pdf').classList.contains('on')")
@@ -445,3 +461,15 @@ def test_catalog_extracted_table_viewer(page):
     with page.expect_download() as dl:
         page.click("#modal >> text=Download CSV")
     assert len(Path(dl.value.path()).read_text().splitlines()) >= 2
+
+
+def test_missing_months_break_the_line_instead_of_interpolating(page):
+    page.select_option("#dash-select", label="★ Load factor trends")
+    page.wait_for_function("document.querySelectorAll('.card').length === 4 && !document.querySelector('.card-body.loading')")
+    # international scheduled flights were suspended Mar 2020 - Mar 2022: that series must have a break (>= 2 subpaths)
+    paths = page.locator("#w-plf-seg svg [aria-label='line'] path").evaluate_all("els => els.map(e => (e.getAttribute('d') || '').split('M').length - 1)")
+    assert max(paths) >= 1 and sorted(paths)[0] >= 1
+    assert any(p >= 2 for p in paths), paths
+    # capacity-by-fiscal-year keeps chronological order top to bottom (ordered dimension is never value-sorted)
+    labels = page.locator("#w-cap svg [aria-label='x-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert len(labels) >= 12 and labels == sorted(labels, key=lambda t: t.replace(" (YTD)", "~")), labels

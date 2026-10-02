@@ -95,3 +95,23 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 - Parsers are tested against saved fixtures in `tests/fixtures/`.
 - Respect the site: low concurrency, identify the client, cache everything.
 - Open questions: licence/terms of reuse for DGCA data; data size budget per release.
+
+## Status (2026-10-03) - what exists
+- **Done, tested end to end**: crawl -> manifest (dedupe by URL/ETag/sha256) -> parse (2 layouts + validators + quarantine) -> publish
+  (merged series Apr 2014 - Aug 2026, 32 operators) -> semantic model -> spec compiler (Python + JS, shared vectors) ->
+  DuckDB-WASM dashboard builder -> Ask-AI panel (Chrome Prompt API + WebLLM, tested with stubs) -> whole-site data catalog.
+- **Whole-site crawl**: 16,058 portal nodes, 13.8k file links (9.6k pdf, 4.4k spreadsheets), 1,111 extracted HTML tables. Route kinds
+  handled: static pages, rule-book JSON, `name/rb/ct/html`, dynamic applications, `viewDynamicRule*`, token attachments (`dynamicPdf/`).
+  Unresolved (24) are dead or mistyped links on dgca.gov.in itself.
+- **Not yet in dashboards** (catalogued, downloadable on demand with `dgca download --section ... --ext ...`): domestic city-pair traffic
+  (monthly, route level), quarterly international traffic, fleet/personnel/financial tables, non-scheduled operators, pre-2014 years,
+  accident/incident reports, licences, aerodromes. Each is an `onboard-section` AI task (see prompts/).
+
+## Findings worth knowing
+- Portal is Hindi by default per session; `langChange('en_US')` switches it. Files live on public S3; dynamic documents are addressed by
+  deterministic AES tokens fetched through `Upload?flag=iframeAttachView&attachId=`.
+- Fiscal-year tables report capacity in millions, the newer calendar-year series in thousands; units are detected per column from headers.
+- Final vs provisional: where the series overlap (Jan 2016 - Mar 2019) passenger counts match exactly; cargo/capacity differ for a few operators
+  (Air India Express, Blue Dart) and are logged in `data/processed/conflicts.parquet`, final value wins.
+- One source inconsistency kept in quarantine on purpose (`totaldom19`: capacity months do not sum to the published total).
+- Scheduled international flights were suspended Mar 2020 - Mar 2022, so those months are real gaps (charts break the line).

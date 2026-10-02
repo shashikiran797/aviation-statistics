@@ -57,6 +57,25 @@ function prep(rows, spec, catalog) {
   });
 }
 
+/** Time series: a month with no row (e.g. no scheduled international flights 2020-22) must break the line, not be interpolated. */
+function withGaps(data, spec, catalog) {
+  const [d0, d1] = spec.dimensions;
+  if (catalog.dimensions[d0].kind !== "time") return data;
+  const months = [...new Set(data.map((r) => +r.__x))].sort((a, b) => a - b);
+  const all = [];
+  const bySeries = new Map();
+  for (const r of data) { const k = r.__s ?? ""; if (!bySeries.has(k)) bySeries.set(k, new Map()); bySeries.get(k).set(+r.__x, r); }
+  for (const [k, m] of bySeries) {
+    const first = Math.min(...m.keys()), last = Math.max(...m.keys());
+    for (const t of months) {
+      if (t < first || t > last) continue;
+      if (m.has(t)) all.push(m.get(t));
+      else all.push({ __x: new Date(t), __s: k === "" ? null : k, ...(d1 ? { [d1]: k } : {}), ...Object.fromEntries(spec.measures.map((x) => [x, null])) , [d0]: new Date(t), __gap: true });
+    }
+  }
+  return all;
+}
+
 function seriesOrder(data, m) {
   const tot = new Map();
   for (const r of data) tot.set(r.__s, (tot.get(r.__s) || 0) + (r[m] || 0));
@@ -131,7 +150,10 @@ function oneChart({ data, spec, catalog, measure, kind, width, onPick, colors, o
   const base = { width, height: kind === "hbar" ? Math.max(180, 26 * new Set(data.map((r) => r.__x)).size + 40) : 250, marginLeft: kind === "hbar" ? 130 : 52, marginBottom: 34,
     style: { background: "transparent", color: text, fontSize: "11px", overflow: "visible" } };
   const y = { label: null, grid: true, tickFormat: axisTick(measure, catalog), nice: true };
-  const xT = { label: null, ...(timeX ? { tickFormat: (d) => monthLabel(d), ticks: width < 480 ? 4 : 8 } : { tickRotate: 0 }) };
+  const nX = new Set(data.map((r) => r.__x)).size;
+  const crowded = !timeX && nX * 62 > width;                              // categorical labels that would collide
+  const xT = { label: null, ...(timeX ? { tickFormat: (d) => monthLabel(d), ticks: width < 480 ? 4 : 8 } : { tickRotate: crowded ? -40 : 0 }) };
+  if (crowded) base.marginBottom = 58;
   let marks, svg;
   const colorDomain = d1 ? order : null;
   const fillScale = d1 ? { color: { domain: order, range: colors.slice(0, order.length) } } : {};
@@ -192,7 +214,7 @@ function interact(host, svg, { kind, data, spec, catalog, measure, order, colors
       if (!pos.length || px < pos[0] - 20 || px > pos[pos.length - 1] + 20) { hair.hidden = true; hideTip(); return; }
       hair.hidden = false;
       hair.style.left = sb.left - hb.left + pos[best] + "px";
-      const at = data.filter((r) => String(+toDate(r.__x) || r.__x) === String(+toDate(xs[best]) || xs[best]));
+      const at = data.filter((r) => !r.__gap && String(+toDate(r.__x) || r.__x) === String(+toDate(xs[best]) || xs[best]));
       const box = el("div");
       box.append(el("div", "th", xLabel(xs[best])));
       if (d1) {
@@ -237,7 +259,8 @@ export function renderWidget(host, { spec, cols, rows, catalog, onPick, forceTab
   if (!rows.length) { host.append(el("div", "empty", "No rows match these filters.")); return viz; }
   if (viz === "kpi") { host.append(kpis(rows, spec, catalog)); return viz; }
   if (viz === "table" || !spec.measures.length) { host.append(tableView(cols, rows, catalog)); return "table"; }
-  const data = prep(rows, spec, catalog);
+  let data = prep(rows, spec, catalog);
+  if (viz === "line" || (viz !== "bar" && viz !== "heatmap")) data = withGaps(data, spec, catalog);
   const d0 = spec.dimensions[0];
   const colors = palette();
   const d1 = spec.dimensions[1];
@@ -249,7 +272,8 @@ export function renderWidget(host, { spec, cols, rows, catalog, onPick, forceTab
   }
   const nCats = new Set(data.map((r) => r.__x)).size;
   let kind = viz;
-  if (kind === "bar" && !d1 && (nCats > 8 || String([...new Set(data.map((r) => r.__x))].join("")).length > 70)) kind = "hbar";
+  const ordered = !!catalog.dimensions[d0].ordered;                      // fiscal years / months keep their natural order
+  if (kind === "bar" && !d1 && !ordered && (nCats > 8 || String([...new Set(data.map((r) => r.__x))].join("")).length > 70)) kind = "hbar";
   if (kind === "heatmap" && !d1) kind = "bar";
   const width = Math.max(260, host.clientWidth - 4);
   const multi = spec.measures.length > 1;
