@@ -38,24 +38,28 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
    - DuckDB-WASM + Parquet over HTTP range requests: the browser downloads only the columns/row groups it needs,
      and queries run locally in a Web Worker. Small dims are cached in IndexedDB / OPFS.
    - UI: filters + charts (Observable Plot or Plotly), table browser with CSV download, SQL editor, per-row source link.
-   - **AI query**: feature-detect Chrome's built-in Prompt API (Gemini Nano, `LanguageModel`) and use it for
-     NL -> SQL with the catalog + schema in the prompt; SQL shown, validated (SELECT-only, table allowlist) and run
-     locally; on error one self-repair retry. If unavailable (other browsers, not enabled, no model downloaded) the AI tab
-     degrades to canned example questions + the SQL editor. Optional later: WebLLM (WebGPU) as a second local backend.
-     No API keys ship to the client.
+   - **AI query** (three tiers, all local, no API keys, user picks in an "AI setup" panel):
+     1. Chrome built-in AI (Prompt API / Gemini Nano, `LanguageModel`): feature-detected; if absent or not downloaded the
+        panel shows step-by-step instructions (supported Chrome version, enable the relevant `chrome://flags`, check
+        `chrome://on-device-internals` for model status, expected download size, then reload) and a live status check.
+     2. WebLLM (WebGPU): opt-in button with explicit size warning (~1-2 GB one-time download, cached by the browser),
+        WebGPU detection, progress bar, model choice, and clear "unsupported browser/GPU" messaging.
+     3. Neither available: AI tab degrades to curated example questions + SQL editor.
+     Both backends share one NL -> SQL pipeline: catalog + schema in the prompt, SQL shown to the user, validated
+     (SELECT-only, table allowlist), run in DuckDB-WASM, one self-repair retry on error.
 7. **automation**: GitHub Actions cron (weekly): crawl -> diff manifest -> parse only new/changed -> validate -> publish
-   to static hosting (GitHub Pages / Cloudflare Pages). A run with zero changes commits nothing.
+   to static hosting (GitHub Pages; decided - data expected well under the ~1 GB site cap, revisit if it grows). A run with zero changes commits nothing.
 
 ## Milestones
 - M0 Scaffold + dry-run parser as test fixture (done).
 - M1 Crawler + manifest + dedupe for the air-transport statistics section; coverage-by-year report; idempotent re-runs.
 - M2 Parse all xlsx in that section (both layouts) with validation; Parquet + catalog publish.
 - M3 Static site: DuckDB-WASM, filters/charts, SQL editor, downloads.
-- M4 Chrome built-in AI query tab + eval set of ~30 questions (NL -> expected SQL result); LLM build-time extraction for PDFs.
+- M4 AI query tab (Chrome built-in AI + WebLLM, setup instructions) + eval set of ~30 questions (NL -> expected SQL result); LLM build-time extraction for PDFs.
 - M5 CI cron + deploy; expand to other Data & Reports sections one at a time.
 
 ## Principles
 - Provenance on every row (source URL, file hash, parser). Never silently coerce: unparseable -> quarantine table.
 - Parsers are tested against saved fixtures in `tests/fixtures/`.
 - Respect the site: low concurrency, identify the client, cache everything.
-- Open questions: licence/terms of reuse for DGCA data; hosting target (GitHub Pages vs Cloudflare Pages); data size budget per release.
+- Open questions: licence/terms of reuse for DGCA data; data size budget per release.
