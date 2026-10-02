@@ -1,0 +1,24 @@
+[project]
+name = "dgca-stats"
+version = "0.1.0"
+description = "Crawl DGCA India aviation statistics, structure them, and query them via a BI UI"
+requires-python = ">=3.10"
+# Deps live in the shared env ~/.venvs/cv-gpu (install this package with --no-deps).
+# Listed here so the project is reproducible elsewhere.
+dependencies = ["requests", "pandas", "openpyxl", "lxml", "beautifulsoup4", "duckdb", "streamlit", "plotly", "anthropic", "pdfplumber", "pyyaml", "tqdm"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+dgca = "dgca_stats.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
