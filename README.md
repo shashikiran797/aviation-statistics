@@ -6,4 +6,4 @@ source ~/.venvs/cv-gpu/bin/activate
 pip install -e . --no-deps
 pytest
 ```
-Layout: `src/dgca_stats/{crawl,parse,llm,db,app}`, `data/` (gitignored), `scripts/` (one-off), `tests/`.
+Layout: `src/dgca_stats/{crawl,parse,llm,publish}`, `web/` (static DuckDB-WASM site)`, `data/` (gitignored), `scripts/` (one-off), `tests/`.
