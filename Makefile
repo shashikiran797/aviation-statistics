@@ -9,7 +9,12 @@ download:   ; $(PY) -m dgca_stats.cli download
 parse:      ; $(PY) -m dgca_stats.cli parse
 validate:   ; $(PY) -m dgca_stats.cli validate
 publish:    ; $(PY) -m dgca_stats.cli publish
-update: crawl download parse validate publish   # the same chain CI runs
+site-crawl: ; $(PY) -m dgca_stats.cli site-crawl
+site-report: ; $(PY) -m dgca_stats.cli site-report
+update: crawl download parse validate publish   # the same chain CI runs (stats section)
+update-all: crawl site-crawl download parse validate publish
+serve: ; $(PY) scripts/serve.py 8765
+test-web: ; node --test web/test/spec.test.mjs && ~/.venvs/cv-gpu/bin/pytest tests/e2e -q
 test:       ; ~/.venvs/cv-gpu/bin/pytest -q
 
 # --- AI triggers: headless Claude Code, prompt template + args ---

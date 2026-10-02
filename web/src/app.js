@@ -4,6 +4,7 @@ import { renderWidget, autoTitle, label, toCsv, chooseViz, hideTip } from "./cha
 import { STARTERS } from "./starter.js";
 import { loadSaved, saveAll, getTheme, setTheme, encodeShare, decodeShare } from "./store.js";
 import * as AI from "./ai.js";
+import { initCatalog } from "./catalog.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, props = {}, ...kids) => {
@@ -33,9 +34,11 @@ async function boot() {
   if (shared) { S.dashboards.push(shared.dash); S.filters = shared.filters; S.current = shared.dash.id; }
   else S.current = S.dashboards[0].id;
   wireChrome();
+  wireViews();
   renderFilters();
   renderDashSelect();
   await renderDashboard();
+  await initCatalog({ db: S.db, base: S.base, catalog: S.catalog, openTable });
   window.__dgca = { query: (sql) => S.db.query(sql), state: S };  // test/debug hook
   document.body.dataset.ready = "1";
 }
@@ -321,6 +324,46 @@ function tableFrom(cols, rows) {
   const t = el("table", { className: "t" }, el("thead", {}, el("tr", {}, ...cols.map((c) => el("th", { textContent: c })))));
   t.append(el("tbody", {}, ...rows.map((r) => el("tr", {}, ...cols.map((c) => el("td", { textContent: r[c] instanceof Date ? r[c].toISOString().slice(0, 10) : String(r[c] ?? "–") }))))));
   return el("div", { className: "tbl-wrap" }, t);
+}
+
+// ---------- views + extracted-table viewer
+function wireViews() {
+  const show = (v) => {
+    const cat = v === "cat";
+    $("#view-catalog").hidden = !cat;
+    $("#view-dash").hidden = cat;
+    $("#filters").hidden = cat;
+    for (const id of ["dash-select", "btn-new", "btn-ai", "btn-share"]) $("#" + id).hidden = cat;
+    $("#v-cat").classList.toggle("on", cat);
+    $("#v-dash").classList.toggle("on", !cat);
+    if (!cat) renderDashboard();
+  };
+  $("#v-dash").onclick = () => show("dash");
+  $("#v-cat").onclick = () => show("cat");
+}
+
+async function openTable(meta) {
+  const file = `tables/${meta.table_sha}.parquet`;
+  await S.db.register(file);
+  const cols = (await S.db.query(`DESCRIBE SELECT * FROM parquet_scan('${file}')`)).rows.map((r) => r.column_name);
+  const search = el("input", { type: "search", placeholder: "Filter rows…", ariaLabel: "Filter rows" });
+  const info = el("p", { className: "hint" });
+  const out = el("div");
+  const csv = el("button", { textContent: "Download CSV" });
+  let last = [];
+  const run = async () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+    const hay = `lower(concat_ws(' ', ${cols.map((c) => `"${c.replaceAll('"', '""')}"`).join(", ")}))`;
+    const where = words.length ? "WHERE " + words.map((w) => `${hay} LIKE '%${w.replaceAll("'", "''")}%'`).join(" AND ") : "";
+    const r = await S.db.query(`SELECT * FROM parquet_scan('${file}') ${where} LIMIT 300`);
+    last = r.rows;
+    info.textContent = `${meta.n_rows} rows × ${meta.n_cols} columns · showing ${r.rows.length}${r.rows.length === 300 ? "+" : ""}`;
+    out.replaceChildren(tableFrom(cols, r.rows));
+  };
+  let tm; search.oninput = () => { clearTimeout(tm); tm = setTimeout(run, 150); };
+  csv.onclick = () => el("a", { href: URL.createObjectURL(new Blob([toCsv(cols, last)], { type: "text/csv" })), download: "table.csv" }).click();
+  openModal(meta.title || "Extracted table", el("div", {}, el("p", { className: "hint", textContent: `Scraped from: ${meta.section_path} (portal route ${meta.route}). Values are kept exactly as published (text).` }), el("div", { className: "frow" }, search, csv), info, out));
+  await run();
 }
 
 // ---------- sources

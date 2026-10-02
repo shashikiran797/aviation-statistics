@@ -13,7 +13,14 @@ export async function openDb(baseUrl, tables) {
     await db.registerFileURL(file, new URL(`${baseUrl}/${file}`, location.href).href, duckdb.DuckDBDataProtocol.HTTP, false);
     await conn.query(`CREATE VIEW ${t} AS SELECT * FROM parquet_scan('${file}')`);
   }
+  const registered = new Set(tables.map((t) => `${t}.parquet`));
   return {
+    /** Register another parquet file lazily (fetched by range requests only when queried). */
+    async register(file) {
+      if (registered.has(file)) return;
+      registered.add(file);
+      await db.registerFileURL(file, new URL(`${baseUrl}/${file}`, location.href).href, duckdb.DuckDBDataProtocol.HTTP, false);
+    },
     async query(sql) {
       const table = await conn.query(sql);
       const cols = table.schema.fields.map((f) => f.name);

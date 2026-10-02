@@ -370,3 +370,78 @@ def test_mobile_layout_has_no_horizontal_scroll(browser):
     assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
     pg.screenshot(path=str(SHOTS / "13-mobile.png"), full_page=True)
     ctx.close()
+
+
+def _summary_count(pg):
+    return int(re.match(r"([\d,]+)", pg.inner_text("#cat-summary")).group(1).replace(",", ""))
+
+
+def test_catalog_search_filters_and_links(page):
+    page.click("#v-cat")
+    page.wait_for_selector("#cat-results .cat-row")
+    total = _summary_count(page)
+    assert total > 100 and page.locator("#cat-sections button").count() > 3
+    assert page.locator("#view-dash").is_hidden() and page.locator("#btn-new").is_hidden()
+    shot(page, "14-catalog")
+    page.fill("#cat-q", "aerodrome")
+    page.wait_for_function(f"document.querySelector('#cat-summary').textContent.includes('aerodrome')")
+    narrowed = _summary_count(page)
+    assert 0 < narrowed < total
+    rows = page.locator("#cat-results .cat-row")
+    assert "aerodrome" in rows.first.inner_text().lower()
+    href = rows.first.locator("a").first.get_attribute("href")
+    assert href.startswith("https://public-prd-dgca.s3")
+    page.click("#ct-pdf")
+    page.wait_for_function("document.querySelector('#ct-pdf').classList.contains('on')")
+    assert _summary_count(page) <= narrowed
+    page.fill("#cat-q", "zzzz-no-such-document")
+    page.wait_for_function("document.querySelector('#cat-summary').textContent.startsWith('0 ')")
+    assert page.locator("#cat-results .cat-row").count() == 0
+    page.fill("#cat-q", "x'); DROP VIEW site_files; --")        # search box is escaped, not executed
+    page.wait_for_function("document.querySelector('#cat-summary').textContent.startsWith('0 ')")
+    page.fill("#cat-q", "")
+    page.click("#ct-all")
+    page.wait_for_function("document.querySelector('#cat-results .cat-row')")
+    assert _summary_count(page) == total
+    page.click("#v-dash")
+    page.wait_for_function("document.querySelectorAll('.card svg').length >= 3")
+
+
+def test_catalog_section_filter_and_paging(page):
+    page.click("#v-cat")
+    page.wait_for_selector("#cat-results .cat-row")
+    total = _summary_count(page)
+    page.locator("#cat-sections button").nth(2).click()
+    page.wait_for_function(f"document.querySelector('#cat-summary').textContent.includes(' in ')")
+    assert _summary_count(page) < total
+    page.locator("#cat-sections button").first.click()
+    page.wait_for_function(f"!document.querySelector('#cat-summary').textContent.includes(' in ')")
+    nxt = page.locator(".pager button", has_text="Next")
+    assert nxt.is_enabled()
+    first = page.locator("#cat-results .cat-row").first.inner_text()
+    nxt.click()
+    page.wait_for_function("document.querySelector('.pager span').textContent.startsWith('Page 2')")
+    assert page.locator("#cat-results .cat-row").first.inner_text() != first
+
+
+def test_catalog_extracted_table_viewer(page):
+    page.click("#v-cat")
+    page.wait_for_selector("#ct-tables")
+    page.click("#ct-tables")
+    page.wait_for_selector("#cat-results .cat-row button.lk")
+    n = _summary_count(page)
+    assert n >= 5
+    page.locator("#cat-results .cat-row button.lk").first.click()
+    page.wait_for_selector("#modal table.t tbody tr")
+    rows = page.locator("#modal table.t tbody tr").count()
+    assert rows >= 2
+    cell = page.locator("#modal table.t tbody tr").nth(0).locator("td").nth(1).inner_text().strip()
+    shot(page, "15-extracted-table")
+    word = next((w for w in re.findall(r"[A-Za-z]{5,}", cell)), None)
+    if word:
+        page.fill("#modal input[type=search]", word.lower())
+        page.wait_for_timeout(600)
+        assert 1 <= page.locator("#modal table.t tbody tr").count() <= rows
+    with page.expect_download() as dl:
+        page.click("#modal >> text=Download CSV")
+    assert len(Path(dl.value.path()).read_text().splitlines()) >= 2

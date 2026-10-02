@@ -100,3 +100,16 @@ pre{background:var(--surface-2);padding:10px;border-radius:8px;overflow:auto;fon
 ol.steps{padding-left:20px;color:var(--text-2)}ol.steps li{margin:4px 0}
 code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12px}
 .progress{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden}.progress i{display:block;height:100%;background:var(--accent);width:0}
+
+.views{display:flex;gap:4px;background:var(--surface-2);border-radius:10px;padding:3px}.views button{border:0;background:transparent;border-radius:8px}.views button.on{background:var(--surface);box-shadow:var(--shadow);font-weight:600}
+#view-catalog{padding:16px 24px 48px;max-width:1500px;margin:0 auto}#view-catalog[hidden]{display:none}
+.cat-head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.cat-head input{flex:1;min-width:260px;padding:9px 12px;font-size:15px}
+.cat-layout{display:grid;grid-template-columns:260px 1fr;gap:20px}@media(max-width:900px){.cat-layout{grid-template-columns:1fr}}
+.cat-sections{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px;max-height:75vh;overflow:auto;position:sticky;top:76px;align-self:start}
+.cat-sections button{display:flex;justify-content:space-between;width:100%;border:0;background:transparent;text-align:left;border-radius:8px;padding:6px 10px;gap:8px}.cat-sections button.on{background:var(--surface-2);font-weight:600}.cat-sections small{color:var(--text-3)}
+.tag{display:inline-block;font-size:11px;font-weight:600;text-transform:uppercase;border-radius:6px;padding:1px 6px;background:var(--surface-2);border:1px solid var(--line);color:var(--text-2)}
+.tag.ds{border-color:var(--series-3);color:var(--series-3)}.tag.dash{border-color:var(--accent);color:var(--accent)}
+.cat-row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+.cat-row:first-child{border-radius:12px 12px 0 0}.cat-row a,.cat-row button.lk{color:var(--accent);text-decoration:none;font-weight:600;background:none;border:0;padding:0;text-align:left;cursor:pointer}.cat-row .path{color:var(--text-3);font-size:12px}
+.pager{display:flex;gap:8px;align-items:center;margin:12px 0}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.chip.pick{cursor:pointer}

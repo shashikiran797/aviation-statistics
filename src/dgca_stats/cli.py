@@ -53,6 +53,43 @@ def cmd_status(a):
     print(coverage(manifest.load()))
 
 
+def cmd_site_crawl(a):
+    """Walk the whole portal (sitemap + everything reachable), record pages, files and HTML tables."""
+    import hashlib
+    from .crawl import site
+    with site.Portal() as portal:
+        pages, files, tables = site.crawl(portal, refresh=a.refresh, max_nodes=a.max_nodes, max_depth=a.max_depth)
+    config.DATA.mkdir(parents=True, exist_ok=True)
+    pd_pages = __import__("pandas").DataFrame(pages)
+    pd_pages["fetched_at"] = manifest.now()
+    pd_pages.to_parquet(config.DATA / "site_pages.parquet", index=False)
+    df = manifest.load()
+    df, st = manifest.upsert(df, site.to_manifest_rows(files))
+    manifest.save(df)
+    out = config.INTERIM / "html_tables"
+    out.mkdir(parents=True, exist_ok=True)
+    index = []
+    for t in tables:
+        sha = hashlib.sha256(t["df"].to_csv(index=False).encode()).hexdigest()
+        t["df"].to_parquet(out / f"{sha}.parquet", index=False)
+        index.append(dict(table_sha=sha, route=t["route"], idx=t["idx"], title=t["title"], section_path=t["section_path"],
+                          n_rows=len(t["df"]), n_cols=t["df"].shape[1], columns=" | ".join(t["df"].columns)[:500]))
+    __import__("pandas").DataFrame(index).drop_duplicates("table_sha").to_parquet(config.DATA / "site_tables.parquet", index=False)
+    print(f"site-crawl: {len(pages)} nodes; manifest +{st['new']} new files; {len(index)} html tables extracted")
+
+
+def cmd_site_report(a):
+    import pandas as pd
+    pages = pd.read_parquet(config.DATA / "site_pages.parquet")
+    print(pages.groupby(["kind", "status"]).size().to_string())
+    m = manifest.load()
+    m = m[m.section.str.startswith("site/", na=False)]
+    print(m.pivot_table(index="section", columns="ext", values="s3_url", aggfunc="count", fill_value=0).to_string())
+    errs = pages[pages.status == "error"]
+    if len(errs):
+        print(errs[["route", "error"]].head(10).to_string())
+
+
 def cmd_update(a):
     for f, ns in ((cmd_crawl, {"years": a.years, "refresh": False}), (cmd_download, {"years": a.years, "force": False, "retry_missing": False}),
                   (cmd_parse, {"all": False}), (cmd_validate, {}), (cmd_publish, {})):
@@ -68,6 +105,8 @@ def main(argv=None):
     sub.add_parser("validate", help="check coverage and cross-checks; non-zero exit on problems").set_defaults(f=cmd_validate)
     sub.add_parser("publish", help="build parquet + semantic catalog into web/data").set_defaults(f=cmd_publish)
     sub.add_parser("status", help="coverage report").set_defaults(f=cmd_status)
+    s = sub.add_parser("site-crawl", help="crawl the entire portal into site_pages/site_tables + manifest"); s.add_argument("--refresh", action="store_true"); s.add_argument("--max-nodes", type=int, default=4000); s.add_argument("--max-depth", type=int, default=5); s.set_defaults(f=cmd_site_crawl)
+    sub.add_parser("site-report", help="summarise the site crawl").set_defaults(f=cmd_site_report)
     s = sub.add_parser("update", help="crawl -> download -> parse -> validate -> publish"); s.add_argument("--years"); s.set_defaults(f=cmd_update)
     a = p.parse_args(argv)
     a.f(a)

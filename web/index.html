@@ -9,6 +9,7 @@
 <body>
 <header class="topbar">
   <div class="brand"><span class="brand-mark" aria-hidden="true">✈</span><div><h1>India aviation statistics</h1><p id="data-meta">Loading data…</p></div></div>
+  <nav class="views" aria-label="Views"><button id="v-dash" class="on">Dashboards</button><button id="v-cat">Data catalog</button></nav>
   <div class="top-actions">
     <select id="dash-select" aria-label="Dashboard"></select>
     <button id="btn-new" class="primary">+ Add widget</button>
@@ -29,7 +30,18 @@
 
 <section class="filters" id="filters" aria-label="Dashboard filters"></section>
 
-<main>
+<main id="view-catalog" hidden>
+  <div class="cat-head">
+    <input id="cat-q" type="search" placeholder="Search every document and table on dgca.gov.in…" aria-label="Search catalog">
+    <div id="cat-types" class="chips"></div>
+  </div>
+  <div class="cat-layout">
+    <aside id="cat-sections" class="cat-sections"></aside>
+    <section><div id="cat-summary" class="status"></div><div id="cat-results"></div></section>
+  </div>
+</main>
+
+<main id="view-dash">
   <div id="status" class="status" role="status"></div>
   <div id="grid" class="grid"></div>
 </main>

@@ -8,6 +8,7 @@ import yaml
 
 from .. import config
 from ..parse.registry import dataset_for
+from . import site as site_pub
 from .names import AGGREGATES, canonical, display, slug
 
 FACT_COLS = ["departures", "hours", "kms_thousand", "pax", "pax_km_million", "ask_million",
@@ -89,7 +90,12 @@ def build(man: pd.DataFrame) -> dict:
     present = set(fact.period_key)
     dim_period = dim_period[dim_period.period_key.isin(present)].reset_index(drop=True)
 
-    version = hashlib.sha256(pd.util.hash_pandas_object(fact, index=False).values.tobytes()).hexdigest()[:10]
+    h = hashlib.sha256(pd.util.hash_pandas_object(fact, index=False).values.tobytes())
+    h.update(pd.util.hash_pandas_object(man[["s3_url", "title", "status", "parse_status"]].astype(str), index=False).values.tobytes())
+    sit = config.DATA / "site_tables.parquet"
+    if sit.exists():
+        h.update(pd.util.hash_pandas_object(pd.read_parquet(sit)[["table_sha"]], index=False).values.tobytes())
+    version = h.hexdigest()[:10]
     out = config.SITE_DATA / version
     if out.exists():
         shutil.rmtree(out)
@@ -98,8 +104,11 @@ def build(man: pd.DataFrame) -> dict:
     for name, df in tables.items():
         df.to_parquet(out / f"{name}.parquet", index=False, compression="zstd", row_group_size=50_000)
 
+    site_stats = site_pub.build(man, out)
+
     # --- semantic catalog (validated against what we actually wrote)
     catalog = make_catalog(tables, version)
+    catalog["site"] = site_stats
     (out / "catalog.json").write_text(json.dumps(catalog, indent=1))
 
     # --- provenance + conflicts
@@ -114,7 +123,8 @@ def build(man: pd.DataFrame) -> dict:
         if old.is_dir() and old.name != version:
             shutil.rmtree(old)
     print(f"publish: version {version}: {len(fact)} fact rows, {len(dim_airline)} airlines, "
-          f"{len(dim_period)} months; {n_dupes} duplicate rows dropped, {len(conflicts)} conflicting rows logged")
+          f"{len(dim_period)} months; {n_dupes} duplicate rows dropped, {len(conflicts)} conflicting rows logged; "
+          f"site catalog: {site_stats['files']} files, {site_stats['tables']} tables")
     return {"version": version, "rows": len(fact)}
 
 
