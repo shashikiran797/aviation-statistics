@@ -50,6 +50,15 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 7. **automation**: GitHub Actions cron (weekly): crawl -> diff manifest -> parse only new/changed -> validate -> publish
    to static hosting (GitHub Pages; decided - data expected well under the ~1 GB site cap, revisit if it grows). A run with zero changes commits nothing.
 
+## Local runs and AI triggers
+- Everything the CI cron does is runnable locally: `make update` (crawl -> download -> parse -> validate -> publish), each step idempotent
+  and resumable; `make test`. The GitHub Actions workflow just calls the same targets.
+- AI triggers live in `prompts/` (templates + trigger table in `prompts/README.md`), runnable headless via `make ai-<task>`
+  (wraps `claude -p` with scoped `--allowedTools`) or interactively as `/<task>` slash commands in `.claude/commands/`.
+  Tasks: fix-parser (quarantined files), extract-pdf, onboard-section, describe-catalog, review-conflicts, nl2sql-eval.
+- Pipeline emits a `data/quarantine/` + `.error.json` for anything it cannot parse/validate and prints the exact `make ai-...`
+  command to run next. In CI, AI tasks are not run automatically; a failed run opens an issue containing those commands.
+
 ## Milestones
 - M0 Scaffold + dry-run parser as test fixture (done).
 - M1 Crawler + manifest + dedupe for the air-transport statistics section; coverage-by-year report; idempotent re-runs.
