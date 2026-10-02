@@ -32,21 +32,39 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 4. **llm** (build-time, Claude): fallback for PDFs / unknown layouts, schema-constrained output, cached by file hash,
    flagged `parsed_by=llm`, same validators. Never runs in the user's browser.
 5. **publish**: write Parquet (one file per fact table, zstd, sorted for row-group pruning), `catalog.json`
-   (tables, columns, descriptions, sample questions, provenance), plus a small SQLite/JSON search index.
+   (the semantic model: facts, dimensions, measures, joins, descriptions, sample questions, provenance), plus a small SQLite/JSON search index.
    Versioned release dir `site/data/v<date>/`; site reads `latest.json`.
-6. **web app** (static; no backend):
-   - DuckDB-WASM + Parquet over HTTP range requests: the browser downloads only the columns/row groups it needs,
-     and queries run locally in a Web Worker. Small dims are cached in IndexedDB / OPFS.
-   - UI: filters + charts (Observable Plot or Plotly), table browser with CSV download, SQL editor, per-row source link.
-   - **AI query** (three tiers, all local, no API keys, user picks in an "AI setup" panel):
+6. **web app** (static; no backend). Primary interface is a **generic dashboard builder**, not a SQL editor.
+   - **Semantic model** (`semantic.yaml` -> `catalog.json`, generated at publish, hand-curated overrides allowed):
+     - *Facts*: one per Parquet fact table (e.g. `airline_monthly_traffic`), each with a grain and natural key.
+     - *Dimensions*: conformed and shared across facts (`airline`, `date` with fy/quarter/month, `segment` domestic/intl,
+       `airport`, `aircraft_type`...), with hierarchies, display labels, and value lists for filter pickers.
+     - *Measures*: base columns with unit + default aggregation (sum pax), and derived measures defined once
+       (load factor = RPK/ASK, YoY %, share of total). Non-additive measures are flagged so the builder never sums them wrongly.
+     - *Joins*: fact -> dimension keys declared in the model; the builder only offers combinations that are valid.
+   - **Builder UX** (Metabase/Superset-style): pick a fact -> drag dimensions and measures onto rows/columns/series/color;
+     filter panel (multi-select, date range, numeric range, top-N); chart type auto-suggested (line for time, bar for category,
+     table/pivot, KPI tile, heatmap, map for airports later) and overridable; sort, limit, compare-to-previous-period.
+     A query is a small JSON **chart spec** {fact, dimensions, measures, filters, sort, limit, viz}; a compiler turns it into
+     DuckDB SQL, so every widget is introspectable, "view SQL" is a read-only popover, and specs are testable without a browser.
+   - **Dashboards**: grid of widgets with global cross-filters (click a bar to filter others), shared filter bar, saved to
+     localStorage and exportable/importable as JSON, and shareable via a URL-encoded spec (no server). Curated starter
+     dashboards ship with the site (Air traffic overview, Airline comparison, Load factor trends).
+   - **Engine**: DuckDB-WASM + Parquet over HTTP range requests (only needed columns/row groups downloaded), queries in a Web
+     Worker; small dimensions cached in IndexedDB / OPFS. Charts via Observable Plot (or ECharts). Download any widget as CSV/PNG.
+   - **SQL editor**: demoted to an "Advanced" drawer for power users (read-only, SELECT-only, table allowlist), plus "open
+     this widget as SQL".
+   - **AI assistant** (three local tiers, no API keys, user picks in an "AI setup" panel):
      1. Chrome built-in AI (Prompt API / Gemini Nano, `LanguageModel`): feature-detected; if absent or not downloaded the
         panel shows step-by-step instructions (supported Chrome version, enable the relevant `chrome://flags`, check
         `chrome://on-device-internals` for model status, expected download size, then reload) and a live status check.
      2. WebLLM (WebGPU): opt-in button with explicit size warning (~1-2 GB one-time download, cached by the browser),
         WebGPU detection, progress bar, model choice, and clear "unsupported browser/GPU" messaging.
-     3. Neither available: AI tab degrades to curated example questions + SQL editor.
-     Both backends share one NL -> SQL pipeline: catalog + schema in the prompt, SQL shown to the user, validated
-     (SELECT-only, table allowlist), run in DuckDB-WASM, one self-repair retry on error.
+     3. Neither available: assistant is hidden; the builder and curated example dashboards work fully without AI.
+     The model's job is to **emit a chart spec (or edit the current one) against the semantic model**, not free-form SQL:
+     "show IndiGo vs Air India passengers by month for FY2017-18" -> spec -> validated against the model (unknown
+     fact/dimension/measure rejected, one self-repair retry) -> rendered as an editable widget the user can tweak.
+     Small local models do much better choosing from a closed vocabulary than writing joins.
 7. **automation**: GitHub Actions cron (weekly): crawl -> diff manifest -> parse only new/changed -> validate -> publish
    to static hosting (GitHub Pages; decided - data expected well under the ~1 GB site cap, revisit if it grows). A run with zero changes commits nothing.
 
@@ -63,8 +81,9 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 - M0 Scaffold + dry-run parser as test fixture (done).
 - M1 Crawler + manifest + dedupe for the air-transport statistics section; coverage-by-year report; idempotent re-runs.
 - M2 Parse all xlsx in that section (both layouts) with validation; Parquet + catalog publish.
-- M3 Static site: DuckDB-WASM, filters/charts, SQL editor, downloads.
-- M4 AI query tab (Chrome built-in AI + WebLLM, setup instructions) + eval set of ~30 questions (NL -> expected SQL result); LLM build-time extraction for PDFs.
+- M2.5 Semantic model (facts/dimensions/measures/joins) + spec->SQL compiler with tests (Python reference + JS port, shared test vectors).
+- M3 Static site: dashboard builder (field picker, filters, chart types, cross-filter, save/share), curated dashboards, downloads; SQL as advanced drawer.
+- M4 AI query tab (Chrome built-in AI + WebLLM, setup instructions) + eval set of ~30 questions (NL -> expected chart spec / result); LLM build-time extraction for PDFs.
 - M5 CI cron + deploy; expand to other Data & Reports sections one at a time.
 
 ## Principles
