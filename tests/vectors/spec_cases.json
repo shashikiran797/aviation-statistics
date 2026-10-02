@@ -1,0 +1,219 @@
+{
+ "catalog_version": "f4ed777a68",
+ "cases": [
+  {
+   "name": "kpi_total_pax",
+   "spec": {
+    "fact": "airline_monthly",
+    "measures": [
+     "pax"
+    ]
+   },
+   "sql": "SELECT SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nWHERE dim_airline.airline_type IN ('Airline')"
+  },
+  {
+   "name": "pax_by_fy",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "fy"
+    ],
+    "measures": [
+     "pax"
+    ]
+   },
+   "sql": "SELECT dim_period.fy AS \"fy\",\n       SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_airline.airline_type IN ('Airline')\nGROUP BY dim_period.fy\nORDER BY dim_period.fy"
+  },
+  {
+   "name": "monthly_timeline_domestic",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "period"
+    ],
+    "measures": [
+     "pax",
+     "pax_load_factor"
+    ],
+    "filters": [
+     {
+      "dim": "segment",
+      "op": "in",
+      "values": [
+       "Domestic"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_period.period AS \"period\",\n       SUM(f.pax) AS \"pax\",\n       100.0 * SUM(f.pax_km_million) / NULLIF(SUM(f.ask_million), 0) AS \"pax_load_factor\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nJOIN dim_segment ON f.segment_key = dim_segment.segment_key\nWHERE dim_segment.segment IN ('Domestic')\n  AND dim_airline.airline_type IN ('Airline')\nGROUP BY dim_period.period\nORDER BY dim_period.period"
+  },
+  {
+   "name": "top5_airlines_by_month",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "month",
+     "airline"
+    ],
+    "measures": [
+     "pax"
+    ],
+    "filters": [
+     {
+      "dim": "fy",
+      "op": "in",
+      "values": [
+       "2018-19"
+      ]
+     }
+    ],
+    "top": {
+     "dim": "airline",
+     "measure": "pax",
+     "n": 5
+    }
+   },
+   "sql": "WITH top_n AS (\nSELECT dim_airline.airline AS v\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_period.fy IN ('2018-19')\n  AND dim_airline.airline_type IN ('Airline')\nGROUP BY dim_airline.airline\nORDER BY SUM(f.pax) DESC NULLS LAST, v\nLIMIT 5\n)\nSELECT dim_period.month_name AS \"month\",\n       dim_airline.airline AS \"airline\",\n       SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_period.fy IN ('2018-19')\n  AND dim_airline.airline_type IN ('Airline')\n  AND dim_airline.airline IN (SELECT v FROM top_n)\nGROUP BY dim_period.month_name, dim_airline.airline, dim_period.fy_month_num\nORDER BY dim_period.fy_month_num, dim_airline.airline"
+  },
+  {
+   "name": "sorted_limited",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "airline"
+    ],
+    "measures": [
+     "pax",
+     "pax_per_departure"
+    ],
+    "sort": {
+     "by": "pax",
+     "dir": "desc"
+    },
+    "limit": 10
+   },
+   "sql": "SELECT dim_airline.airline AS \"airline\",\n       SUM(f.pax) AS \"pax\",\n       SUM(f.pax) * 1.0 / NULLIF(SUM(f.departures), 0) AS \"pax_per_departure\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nWHERE dim_airline.airline_type IN ('Airline')\nGROUP BY dim_airline.airline\nORDER BY \"pax\" DESC NULLS LAST, dim_airline.airline\nLIMIT 10"
+  },
+  {
+   "name": "aggregates_only_override",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "airline"
+    ],
+    "measures": [
+     "pax"
+    ],
+    "filters": [
+     {
+      "dim": "airline_type",
+      "op": "in",
+      "values": [
+       "Aggregate"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_airline.airline AS \"airline\",\n       SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nWHERE dim_airline.airline_type IN ('Aggregate')\nGROUP BY dim_airline.airline\nORDER BY dim_airline.airline"
+  },
+  {
+   "name": "date_between",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "period"
+    ],
+    "measures": [
+     "departures"
+    ],
+    "filters": [
+     {
+      "dim": "period",
+      "op": "between",
+      "values": [
+       "2017-04-01",
+       "2018-03-01"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_period.period AS \"period\",\n       SUM(f.departures) AS \"departures\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_period.period BETWEEN DATE '2017-04-01' AND DATE '2018-03-01'\n  AND dim_airline.airline_type IN ('Airline')\nGROUP BY dim_period.period\nORDER BY dim_period.period"
+  },
+  {
+   "name": "quote_escaping",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "airline"
+    ],
+    "measures": [
+     "pax"
+    ],
+    "filters": [
+     {
+      "dim": "airline",
+      "op": "not_in",
+      "values": [
+       "O'Hare Air",
+       "A"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_airline.airline AS \"airline\",\n       SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nWHERE dim_airline.airline NOT IN ('O''Hare Air', 'A')\n  AND dim_airline.airline_type IN ('Airline')\nGROUP BY dim_airline.airline\nORDER BY dim_airline.airline"
+  },
+  {
+   "name": "err_unknown_measure",
+   "spec": {
+    "fact": "airline_monthly",
+    "measures": [
+     "nope"
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "err_injection_dim",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "airline; DROP TABLE x"
+    ],
+    "measures": [
+     "pax"
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "err_bad_date",
+   "spec": {
+    "fact": "airline_monthly",
+    "dimensions": [
+     "period"
+    ],
+    "measures": [
+     "pax"
+    ],
+    "filters": [
+     {
+      "dim": "period",
+      "op": "between",
+      "values": [
+       "x'--",
+       "2018-03-01"
+      ]
+     }
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "err_empty",
+   "spec": {
+    "fact": "airline_monthly"
+   },
+   "error": true
+  }
+ ]
+}

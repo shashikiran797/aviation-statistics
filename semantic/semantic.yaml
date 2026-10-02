@@ -1,0 +1,44 @@
+# Curated semantic model. `dgca publish` validates it against the parquet schema and emits web/data/<version>/catalog.json,
+# which BOTH the Python and JS spec compilers read. Add a fact/dimension/measure here and it appears in the builder.
+facts:
+  airline_monthly:
+    label: Airline monthly traffic
+    table: fact_airline_monthly
+    grain: airline x fiscal month x segment (domestic | international)
+    description: >
+      Scheduled traffic and operating statistics reported by Indian airlines to DGCA (ICAO ATR Form A).
+      Fiscal years run April-March. Rows for aggregate entities (ALL SCHEDULED INDIAN AIRLINES, national, private)
+      are totals of airlines and are excluded by default so nothing is double counted.
+    joins:                       # dimension table alias -> [fact column, dim table, dim column]
+      dim_airline: [airline_key, dim_airline, airline_key]
+      dim_period: [period_key, dim_period, period_key]
+      dim_segment: [segment_key, dim_segment, segment_key]
+    default_filters:
+      - {dim: airline_type, op: in, values: [Airline]}
+    dimensions: [airline, airline_type, fy, quarter, month, period, segment]
+    measures: [pax, departures, pax_load_factor, pax_per_departure, pax_km, ask, hours, kms, cargo_t, tkm_total, atk, weight_load_factor]
+
+dimensions:
+  airline:      {label: Airline, table: dim_airline, column: airline, kind: category, description: "Operator name (aliases merged, e.g. 'AIR ASIA excel' -> AirAsia India)."}
+  airline_type: {label: Entity type, table: dim_airline, column: airline_type, kind: category, description: "Airline, or Aggregate for DGCA roll-ups (all scheduled / national / private)."}
+  fy:           {label: Fiscal year, table: dim_period, column: fy, kind: category, ordered: true, description: "April-March fiscal year, e.g. 2017-18."}
+  quarter:      {label: Fiscal quarter, table: dim_period, column: quarter, kind: category, ordered: true, description: "Q1 = Apr-Jun."}
+  month:        {label: Month, table: dim_period, column: month_name, sort_by: fy_month_num, kind: category, ordered: true, description: "Calendar month, ordered April to March."}
+  period:       {label: Month (timeline), table: dim_period, column: period, kind: time, ordered: true, description: "First day of the month; use for time series."}
+  segment:      {label: Segment, table: dim_segment, column: segment, kind: category, description: "Scheduled domestic or international services."}
+
+measures:
+  pax:               {label: Passengers carried, expr: "SUM(f.pax)", unit: passengers, additive: true, format: compact}
+  departures:        {label: Departures, expr: "SUM(f.departures)", unit: flights, additive: true, format: compact}
+  hours:             {label: Aircraft hours flown, expr: "SUM(f.hours)", unit: hours, additive: true, format: compact}
+  kms:               {label: Aircraft km flown (thousand), expr: "SUM(f.kms_thousand)", unit: "thousand km", additive: true, format: compact}
+  pax_km:            {label: Passenger-km performed (million), expr: "SUM(f.pax_km_million)", unit: "million pax-km", additive: true, format: compact}
+  ask:               {label: Available seat-km (million), expr: "SUM(f.ask_million)", unit: "million seat-km", additive: true, format: compact}
+  cargo_t:           {label: Cargo carried (tonnes), expr: "SUM(f.cargo_t)", unit: tonnes, additive: true, format: compact}
+  tkm_total:         {label: Tonne-km performed (million), expr: "SUM(f.tkm_total_million)", unit: "million tonne-km", additive: true, format: compact}
+  atk:               {label: Available tonne-km (million), expr: "SUM(f.atk_million)", unit: "million tonne-km", additive: true, format: compact}
+  pax_load_factor:   {label: Passenger load factor, expr: "100.0 * SUM(f.pax_km_million) / NULLIF(SUM(f.ask_million), 0)", unit: "%", additive: false, format: percent, description: "Passenger-km / available seat-km. Recomputed from sums, never averaged."}
+  weight_load_factor: {label: Weight load factor, expr: "100.0 * SUM(f.tkm_total_million) / NULLIF(SUM(f.atk_million), 0)", unit: "%", additive: false, format: percent}
+  pax_per_departure: {label: Passengers per departure, expr: "SUM(f.pax) * 1.0 / NULLIF(SUM(f.departures), 0)", unit: passengers, additive: false, format: number}
+
+dashboards: []

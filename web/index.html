@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>India Aviation Stats</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true">✈</span><div><h1>India aviation statistics</h1><p id="data-meta">Loading data…</p></div></div>
+  <div class="top-actions">
+    <select id="dash-select" aria-label="Dashboard"></select>
+    <button id="btn-new" class="primary">+ Add widget</button>
+    <button id="btn-ai" title="Ask in plain English">✨ Ask AI</button>
+    <button id="btn-share" title="Copy a link to this dashboard">Share</button>
+    <button id="btn-menu" aria-haspopup="true" title="More">⋯</button>
+    <button id="btn-theme" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+<div id="menu" class="menu" hidden>
+  <button data-act="save">Save dashboard as…</button>
+  <button data-act="export">Export JSON</button>
+  <button data-act="import">Import JSON</button>
+  <button data-act="delete">Delete this dashboard</button>
+  <button data-act="sql">Advanced: SQL console</button>
+  <button data-act="sources">Data sources &amp; coverage</button>
+</div>
+
+<section class="filters" id="filters" aria-label="Dashboard filters"></section>
+
+<main>
+  <div id="status" class="status" role="status"></div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<!-- widget builder -->
+<dialog id="builder">
+  <form method="dialog" class="builder-head"><h2 id="builder-title">Widget</h2><button value="cancel" class="ghost" aria-label="Close">✕</button></form>
+  <div class="builder-body">
+    <aside class="fields">
+      <label class="lbl">Fact table <select id="b-fact"></select></label>
+      <p class="hint" id="b-fact-desc"></p>
+      <h3>Dimensions <small>(group by)</small></h3><div id="b-dims" class="chips"></div>
+      <h3>Measures</h3><div id="b-meas" class="chips"></div>
+      <p class="hint">Click or drag a field into the shelves →</p>
+    </aside>
+    <section class="shelves">
+      <div class="shelf" data-shelf="dimensions"><h3>Group by <small>first = X axis, second = series</small></h3><div class="slot" id="s-dimensions"></div></div>
+      <div class="shelf" data-shelf="measures"><h3>Measures</h3><div class="slot" id="s-measures"></div></div>
+      <div class="shelf"><h3>Filters</h3><div id="s-filters"></div><button id="b-addfilter" class="ghost">+ Add filter</button></div>
+      <div class="opts">
+        <label>Chart <select id="b-viz"><option value="auto">Auto</option><option value="line">Line</option><option value="bar">Bar</option><option value="heatmap">Heatmap</option><option value="table">Table</option></select></label>
+        <label>Top <input id="b-topn" type="number" min="1" max="50" placeholder="all"> <select id="b-topdim"></select> by <select id="b-topmeas"></select></label>
+        <label>Sort <select id="b-sortby"></select> <select id="b-sortdir"><option value="desc">high → low</option><option value="asc">low → high</option></select></label>
+        <label>Limit rows <input id="b-limit" type="number" min="1" max="100000" placeholder="none"></label>
+      </div>
+      <label class="lbl">Title <input id="b-title" type="text" placeholder="Auto title"></label>
+    </section>
+    <section class="preview"><div id="b-preview" class="card-body"></div><div id="b-error" class="error" hidden></div><details><summary>View SQL</summary><pre id="b-sql"></pre></details></section>
+  </div>
+  <footer class="builder-foot"><button id="b-cancel" class="ghost">Cancel</button><button id="b-save" class="primary">Save to dashboard</button></footer>
+</dialog>
+
+<!-- generic modal -->
+<dialog id="modal"><form method="dialog" class="builder-head"><h2 id="modal-title"></h2><button value="x" class="ghost" aria-label="Close">✕</button></form><div id="modal-body" class="modal-body"></div></dialog>
+
+<div id="tip" class="tip" hidden></div>
+<input id="file-in" type="file" accept="application/json" hidden>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
