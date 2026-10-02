@@ -51,7 +51,7 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
      localStorage and exportable/importable as JSON, and shareable via a URL-encoded spec (no server). Curated starter
      dashboards ship with the site (Air traffic overview, Airline comparison, Load factor trends).
    - **Engine**: DuckDB-WASM + Parquet over HTTP range requests (only needed columns/row groups downloaded), queries in a Web
-     Worker; small dimensions cached in IndexedDB / OPFS. Charts via Observable Plot (or ECharts). Download any widget as CSV/PNG.
+     Worker; small dimensions cached in IndexedDB / OPFS. Charts via Observable Plot (decided; revisit ECharts only if maps/rich interaction are needed). Download any widget as CSV/PNG.
    - **SQL editor**: demoted to an "Advanced" drawer for power users (read-only, SELECT-only, table allowlist), plus "open
      this widget as SQL".
    - **AI assistant** (three local tiers, no API keys, user picks in an "AI setup" panel):
@@ -75,7 +75,11 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
   (wraps `claude -p` with scoped `--allowedTools`) or interactively as `/<task>` slash commands in `.claude/commands/`.
   Tasks: fix-parser (quarantined files), extract-pdf, onboard-section, describe-catalog, review-conflicts, nl2sql-eval.
 - Pipeline emits a `data/quarantine/` + `.error.json` for anything it cannot parse/validate and prints the exact `make ai-...`
-  command to run next. In CI, AI tasks are not run automatically; a failed run opens an issue containing those commands.
+  command to run next. **CI never runs AI tasks** (decided): a failed run opens an issue listing the exact `make ai-...` commands; a human runs them locally and reviews the diff.
+
+## Decisions
+- Hosting: GitHub Pages. Charts: Observable Plot. Spec->SQL compiler: Python reference + JS port sharing test vectors.
+- CI never runs AI tasks. Local AI via `claude -p` (see prompts/).
 
 ## Milestones
 - M0 Scaffold + dry-run parser as test fixture (done).
