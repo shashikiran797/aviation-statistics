@@ -9,6 +9,7 @@ make update          # air-traffic statistics: crawl -> download -> parse -> val
 make site-crawl      # whole portal: sitemap + every reachable page; records files and extracted HTML tables
 make site-report     # what the site crawl found
 make publish         # (or `dgca publish`) rebuild web/data from the manifest
+make vendor          # fetch DuckDB-WASM, its Parquet extension and the chart library into web/vendor (gitignored; the app falls back to a CDN without it)
 make serve           # http://localhost:8765  (static server with HTTP Range support, like GitHub Pages)
 make test            # python unit tests;  make test-web  # JS compiler vectors + Playwright e2e (+screenshots)
 ```

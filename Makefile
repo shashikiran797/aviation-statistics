@@ -13,8 +13,10 @@ site-crawl: ; $(PY) -m dgca_stats.cli site-crawl
 site-report: ; $(PY) -m dgca_stats.cli site-report
 update: crawl download parse validate publish   # the same chain CI runs (stats section)
 update-all: crawl site-crawl download parse validate publish
-serve: ; $(PY) scripts/serve.py 8765
-test-web: ; node --test web/test/spec.test.mjs && ~/.venvs/cv-gpu/bin/pytest tests/e2e -q
+vendor: ; ./scripts/vendor.sh   # DuckDB-WASM + Parquet extension + chart lib into web/vendor (no CDN needed)
+web/vendor/MANIFEST.json: ; ./scripts/vendor.sh
+serve: web/vendor/MANIFEST.json ; $(PY) scripts/serve.py 8765
+test-web: web/vendor/MANIFEST.json ; node --test web/test/spec.test.mjs && ~/.venvs/cv-gpu/bin/pytest tests/e2e -q
 test:       ; ~/.venvs/cv-gpu/bin/pytest -q
 
 # --- AI triggers: headless Claude Code, prompt template + args ---

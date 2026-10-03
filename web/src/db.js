@@ -1,13 +1,16 @@
 // DuckDB-WASM: queries Parquet over HTTP range requests, entirely in the browser.
-import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm";
+import { duckdb, duckdbBundle } from "./libs.js";
 
 export async function openDb(baseUrl, tables) {
-  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
-  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+  const bundle = await duckdbBundle();
+  // same-origin worker when vendored; a cross-origin CDN worker must be wrapped in a blob that importScripts() it
+  const workerUrl = bundle.vendored ? bundle.mainWorker : URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
   const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-  URL.revokeObjectURL(workerUrl);
+  if (!bundle.vendored) URL.revokeObjectURL(workerUrl);
   const conn = await db.connect();
+  // Parquet support is a DuckDB extension that is otherwise downloaded from extensions.duckdb.org at runtime
+  if (bundle.vendored) await conn.query(`SET custom_extension_repository = '${bundle.extensionRepo}'`);
   for (const t of tables) {
     const file = `${t}.parquet`;
     await db.registerFileURL(file, new URL(`${baseUrl}/${file}`, location.href).href, duckdb.DuckDBDataProtocol.HTTP, false);

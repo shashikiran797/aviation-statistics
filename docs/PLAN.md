@@ -114,6 +114,9 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
   accident/incident reports, licences, aerodromes. Each is an `onboard-section` AI task (see prompts/).
 
 ## Findings worth knowing
+- The browser app has no runtime CDN dependency: `scripts/vendor.sh` bundles DuckDB-WASM (with apache-arrow), its Parquet *extension* (DuckDB-WASM otherwise
+  downloads it from extensions.duckdb.org at runtime) and Observable Plot into gitignored `web/vendor` with pinned versions and checksums. Without it the app falls back to
+  the CDN. WebLLM stays CDN-loaded on purpose (opt-in, large, and its models come from a third party anyway). CI/deploy must run `make vendor`.
 - Portal is Hindi by default per session; `langChange('en_US')` switches it. Files live on public S3; dynamic documents are addressed by
   deterministic AES tokens fetched through `Upload?flag=iframeAttachView&attachId=`.
 - Fiscal-year tables report capacity in millions, the newer calendar-year series in thousands; units are detected per column from headers.

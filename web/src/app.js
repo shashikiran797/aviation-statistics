@@ -5,6 +5,7 @@ import { STARTERS } from "./starter.js";
 import { loadSaved, saveAll, getTheme, setTheme, encodeShare, decodeShare } from "./store.js";
 import * as AI from "./ai.js";
 import { initCatalog } from "./catalog.js";
+import { source as libSource } from "./libs.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, props = {}, ...kids) => {
@@ -40,7 +41,7 @@ async function boot() {
   renderDashSelect();
   await renderDashboard();
   await initCatalog({ db: S.db, base: S.base, catalog: S.catalog, openTable });
-  window.__dgca = { query: (sql) => S.db.query(sql), state: S };  // test/debug hook
+  window.__dgca = { query: (sql) => S.db.query(sql), state: S, libs: libSource };  // test/debug hook
   document.body.dataset.ready = "1";
 }
 

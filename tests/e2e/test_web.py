@@ -786,3 +786,54 @@ def test_international_dark_and_mobile(page, browser):
     assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
     pg.screenshot(path=str(SHOTS / "29-international-mobile.png"), full_page=True)
     ctx.close()
+
+
+# ================================================================ vendored libraries (no CDN)
+VENDOR = ROOT / "web" / "vendor"
+
+
+def _need_vendor():
+    if not (VENDOR / "MANIFEST.json").exists():
+        pytest.skip("web/vendor not built (run scripts/vendor.sh)")
+
+
+def test_vendor_files_match_their_recorded_checksums():
+    _need_vendor()
+    import hashlib
+    m = json.loads((VENDOR / "MANIFEST.json").read_text())
+    assert m["duckdb-wasm"] and m["observable-plot"] and {"plot.js", "duckdb/duckdb-eh.wasm", "duckdb/duckdb-browser-eh.worker.js", "duckdb/duckdb.js", "duckdb/extensions/v1.1.1/wasm_eh/parquet.duckdb_extension.wasm"} <= set(m["files"])
+    for rel, info in m["files"].items():
+        data = (VENDOR / rel).read_bytes()
+        assert len(data) == info["bytes"] and hashlib.sha256(data).hexdigest() == info["sha256"], rel
+
+
+def test_app_runs_with_every_third_party_host_blocked(browser):
+    """Offline-capable: the whole app (queries, charts, all dashboards) works when nothing outside this origin is reachable."""
+    _need_vendor()
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
+    external = []
+    ctx.route("**/*", lambda route: (external.append(route.request.url), route.abort()) if "localhost" not in route.request.url else route.continue_())
+    pg = ctx.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(URL)
+    pg.wait_for_selector("body[data-ready='1']", timeout=60000)
+    assert pg.evaluate("window.__dgca.libs") == {"duckdb": "vendor", "plot": "vendor"}
+    assert pg.locator(".card svg").count() >= 3 and not pg.locator(".card .error").count()
+    for name in ("★ International traffic", "★ Routes & airports"):
+        pg.select_option("#dash-select", label=name)
+        pg.wait_for_function("!document.querySelector('.card-body.loading')")
+        assert not pg.locator(".card .error").count()
+    assert external == [] and errors == [], (external, errors)
+    ctx.close()
+
+
+def test_missing_vendor_files_fall_back_to_the_cdn(browser):
+    _need_vendor()
+    ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
+    ctx.route("**/vendor/**", lambda route: route.abort())
+    pg = ctx.new_page()
+    boot(pg)
+    assert pg.evaluate("window.__dgca.libs") == {"duckdb": "cdn", "plot": "cdn"}
+    assert pg.locator(".card svg").count() >= 3
+    ctx.close()
