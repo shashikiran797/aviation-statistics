@@ -1,5 +1,6 @@
 // Curated starter dashboards. Specs are plain chart specs over the semantic model; users fork them on first edit.
-const w = (id, title, spec, size = 6) => ({ id, title, spec: { fact: "airline_monthly", ...spec }, w: size });
+const w = (id, title, spec, size = 6, fact = "airline_monthly") => ({ id, title, spec: { fact, ...spec }, w: size });
+const r = (id, title, spec, size = 6) => w(id, title, spec, size, "route_monthly");
 
 export const STARTERS = [
   {
@@ -25,6 +26,17 @@ export const STARTERS = [
       w("plf-seg", "Load factor by month, domestic vs international", { dimensions: ["period", "segment"], measures: ["pax_load_factor"] }),
       w("cap", "Capacity (available seat-km) by fiscal year", { dimensions: ["fy"], measures: ["ask"], viz: "bar" }),
       w("tbl", "Fiscal-year summary table", { dimensions: ["fy", "segment"], measures: ["pax", "departures", "pax_load_factor", "pax_per_departure"], viz: "table" }, 12),
+    ],
+  },
+  {
+    id: "routes", name: "Routes & airports", starter: true, widgets: [
+      r("rt-kpi", "Domestic passengers on city pairs (selected filters)", { measures: ["route_pax", "route_freight_t", "route_mail_t"] }, 12),
+      r("rt-top", "Busiest routes (both directions)", { dimensions: ["route"], measures: ["route_pax"], sort: { by: "route_pax", dir: "desc" }, limit: 15 }),
+      r("rt-origin", "Busiest cities by departing passengers", { dimensions: ["origin_city"], measures: ["route_pax"], sort: { by: "route_pax", dir: "desc" }, limit: 15 }),
+      r("rt-trend", "Top 5 routes – monthly passengers", { dimensions: ["period", "route"], measures: ["route_pax"], top: { dim: "route", measure: "route_pax", n: 5 } }, 12),
+      r("rt-heat", "Passengers: route × fiscal year (top 12 routes)", { dimensions: ["fy", "route"], measures: ["route_pax"], top: { dim: "route", measure: "route_pax", n: 12 }, viz: "heatmap" }, 12),
+      r("rt-freight", "Freight by route (tonnes, 2018 onward)", { dimensions: ["route"], measures: ["route_freight_t"], sort: { by: "route_freight_t", dir: "desc" }, limit: 12 }),
+      r("rt-tbl", "Top routes table", { dimensions: ["route"], measures: ["route_pax", "route_freight_t", "route_mail_t"], sort: { by: "route_pax", dir: "desc" }, limit: 25, viz: "table" }),
     ],
   },
 ];

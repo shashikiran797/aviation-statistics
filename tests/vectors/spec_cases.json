@@ -1,5 +1,5 @@
 {
- "catalog_version": "c26a9e8c1e",
+ "catalog_version": "340b0bf498",
  "cases": [
   {
    "name": "kpi_total_pax",
@@ -161,6 +161,135 @@
     ]
    },
    "sql": "SELECT dim_airline.airline AS \"airline\",\n       SUM(f.pax) AS \"pax\"\nFROM fact_airline_monthly AS f\nJOIN dim_airline ON f.airline_key = dim_airline.airline_key\nWHERE dim_airline.airline NOT IN ('O''Hare Air', 'A')\n  AND dim_airline.airline_type IN ('Airline')\nGROUP BY dim_airline.airline\nORDER BY dim_airline.airline"
+  },
+  {
+   "name": "route_top_pairs",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "route"
+    ],
+    "measures": [
+     "route_pax"
+    ],
+    "sort": {
+     "by": "route_pax",
+     "dir": "desc"
+    },
+    "limit": 10
+   },
+   "sql": "SELECT dim_route.route AS \"route\",\n       SUM(f.pax) AS \"route_pax\"\nFROM fact_route_monthly AS f\nJOIN dim_route ON f.route_key = dim_route.route_key\nGROUP BY dim_route.route\nORDER BY \"route_pax\" DESC NULLS LAST, dim_route.route\nLIMIT 10"
+  },
+  {
+   "name": "route_origin_destination",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "origin",
+     "destination"
+    ],
+    "measures": [
+     "route_pax",
+     "route_freight_t"
+    ],
+    "filters": [
+     {
+      "dim": "origin",
+      "op": "in",
+      "values": [
+       "Delhi"
+      ]
+     },
+     {
+      "dim": "destination",
+      "op": "in",
+      "values": [
+       "Mumbai"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_origin.place AS \"origin\",\n       dim_destination.place AS \"destination\",\n       SUM(f.pax) AS \"route_pax\",\n       SUM(f.freight_t) AS \"route_freight_t\"\nFROM fact_route_monthly AS f\nJOIN dim_place AS dim_origin ON f.origin_key = dim_origin.place_key\nJOIN dim_place AS dim_destination ON f.dest_key = dim_destination.place_key\nWHERE dim_origin.place IN ('Delhi')\n  AND dim_destination.place IN ('Mumbai')\nGROUP BY dim_origin.place, dim_destination.place\nORDER BY dim_origin.place, dim_destination.place"
+  },
+  {
+   "name": "route_top5_trend",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "period",
+     "route"
+    ],
+    "measures": [
+     "route_pax"
+    ],
+    "top": {
+     "dim": "route",
+     "measure": "route_pax",
+     "n": 5
+    }
+   },
+   "sql": "WITH top_n AS (\nSELECT dim_route.route AS v\nFROM fact_route_monthly AS f\nJOIN dim_route ON f.route_key = dim_route.route_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nGROUP BY dim_route.route\nORDER BY SUM(f.pax) DESC NULLS LAST, v\nLIMIT 5\n)\nSELECT dim_period.period AS \"period\",\n       dim_route.route AS \"route\",\n       SUM(f.pax) AS \"route_pax\"\nFROM fact_route_monthly AS f\nJOIN dim_route ON f.route_key = dim_route.route_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_route.route IN (SELECT v FROM top_n)\nGROUP BY dim_period.period, dim_route.route\nORDER BY dim_period.period, dim_route.route"
+  },
+  {
+   "name": "route_city_by_fy",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "fy",
+     "origin_city"
+    ],
+    "measures": [
+     "route_pax"
+    ],
+    "filters": [
+     {
+      "dim": "fy",
+      "op": "in",
+      "values": [
+       "2018-19",
+       "2019-20"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_period.fy AS \"fy\",\n       dim_origin.city AS \"origin_city\",\n       SUM(f.pax) AS \"route_pax\"\nFROM fact_route_monthly AS f\nJOIN dim_place AS dim_origin ON f.origin_key = dim_origin.place_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_period.fy IN ('2018-19', '2019-20')\nGROUP BY dim_period.fy, dim_origin.city\nORDER BY dim_period.fy, dim_origin.city"
+  },
+  {
+   "name": "route_kpi_no_default_filters",
+   "spec": {
+    "fact": "route_monthly",
+    "measures": [
+     "route_pax",
+     "route_mail_t"
+    ]
+   },
+   "sql": "SELECT SUM(f.pax) AS \"route_pax\",\n       SUM(f.mail_t) AS \"route_mail_t\"\nFROM fact_route_monthly AS f"
+  },
+  {
+   "name": "err_airline_dim_on_route_fact",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "airline"
+    ],
+    "measures": [
+     "route_pax"
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "err_airline_measure_on_route_fact",
+   "spec": {
+    "fact": "route_monthly",
+    "dimensions": [
+     "route"
+    ],
+    "measures": [
+     "pax"
+    ]
+   },
+   "error": true
   },
   {
    "name": "err_unknown_measure",

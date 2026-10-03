@@ -8,6 +8,8 @@ import yaml
 
 from .. import config
 from ..parse.registry import dataset_for
+from . import checks as checks_mod
+from . import places
 from . import site as site_pub
 from .names import AGGREGATES, canonical, display, slug
 
@@ -57,6 +59,41 @@ def dedupe(d: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return out, (pd.concat(conflicts) if conflicts else pd.DataFrame(columns=list(d.columns) + ["resolution"]))
 
 
+ROUTE_MEASURES = ["pax", "freight_t", "mail_t"]
+
+
+def load_routes(man: pd.DataFrame) -> pd.DataFrame | None:
+    ok = man[(man.parse_status == "ok") & man.apply(lambda r: (dataset_for(r["title"], r["ext"], r["portal_path"]) or {}).get("dataset") == "city_pair_monthly", axis=1)]
+    frames = []
+    for _, r in ok.iterrows():
+        f = config.INTERIM / "city_pair" / f"{r.content_sha256}.parquet"
+        if f.exists():
+            d = pd.read_parquet(f)
+            d["first_seen"] = r.first_seen
+            frames.append(d)
+    if not frames:
+        return None
+    d = pd.concat(frames, ignore_index=True)
+    d["period"] = pd.to_datetime(d["period"])
+    norm = {n: places.normalise(n) for n in set(d.origin) | set(d.destination)}
+    d["origin_key"] = d.origin.map(lambda n: norm[n][0])
+    d["dest_key"] = d.destination.map(lambda n: norm[n][0])
+    keep = ["origin_key", "dest_key", "period", "provisional", "revised", "file_sha256", "first_seen"]
+    d = d[keep + ROUTE_MEASURES]
+    # two source names can collapse to one place inside the same file (e.g. both Goa airports under an old label): add them
+    d = d.groupby(["origin_key", "dest_key", "period", "file_sha256", "provisional", "revised", "first_seen"], as_index=False, dropna=False)[ROUTE_MEASURES].sum(min_count=1)
+    return d, norm
+
+
+def dedupe_routes(d: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Same month published twice (original + 'Revised'): revised beats original, final beats provisional, then newest."""
+    key = ["origin_key", "dest_key", "period"]
+    d = d.assign(_rank=d.revised.astype(int) * -2 + d.provisional.astype(int)).sort_values(["_rank", "first_seen", "file_sha256"], ascending=[True, False, True], kind="stable")
+    dup = d[d.duplicated(key, keep=False)]
+    conflicts = dup[dup.groupby(key)["pax"].transform(lambda x: (x.max() - x.min()) > max(1, 0.001 * x.abs().max()))] if len(dup) else dup
+    return d.drop_duplicates(key, keep="first").drop(columns="_rank"), conflicts
+
+
 def build(man: pd.DataFrame) -> dict:
     d = load_parsed(man)
     d["entity_key"] = d["entity"].map(canonical)
@@ -76,7 +113,14 @@ def build(man: pd.DataFrame) -> dict:
         "first_month": ents["min"].dt.date, "last_month": ents["max"].dt.date,
     }).sort_values(["airline_type", "airline"]).reset_index(drop=True)
 
-    per = pd.DataFrame({"period": sorted(d.period.unique())})
+    routes_pack = load_routes(man)
+    route_periods = set()
+    route_conflicts = pd.DataFrame()
+    if routes_pack is not None:
+        rd, norm = routes_pack
+        rd, route_conflicts = dedupe_routes(rd)
+        route_periods = set(rd.period.unique())
+    per = pd.DataFrame({"period": sorted(set(d.period.unique()) | route_periods)})
     per["fy_start_year"] = per.period.dt.year - (per.period.dt.month < 4).astype(int)
     per["fy"] = per.fy_start_year.astype(str) + "-" + ((per.fy_start_year + 1) % 100).astype(str).str.zfill(2)
     per["fy_month_num"] = (per.period.dt.month - 4) % 12 + 1
@@ -89,6 +133,28 @@ def build(man: pd.DataFrame) -> dict:
     per["period"] = per.period.dt.date
     dim_period = per[["period_key", "period", "fy", "fy_start_year", "quarter", "month_name", "fy_month_num", "calendar_year"]]
     dim_segment = pd.DataFrame({"segment_key": [1, 2], "segment": ["Domestic", "International"]})
+
+    extra_tables, route_stats = {}, {}
+    if routes_pack is not None:
+        info = {}
+        for raw, (k, disp, city) in sorted(norm.items(), key=lambda kv: kv[0].isupper()):   # mixed-case (newest) spelling wins
+            info[k] = (disp, city)
+        dim_place = pd.DataFrame([(k, v[0], v[1]) for k, v in sorted(info.items())], columns=["place_key", "place", "city"])
+        pair = lambda o, t: " – ".join(sorted([info[o][0], info[t][0]]))
+        rd["route_key"] = [("_".join(sorted([o, t]))) for o, t in zip(rd.origin_key, rd.dest_key)]
+        pairs = rd[["route_key", "origin_key", "dest_key"]].drop_duplicates("route_key")
+        dim_route = pd.DataFrame({"route_key": pairs.route_key.values, "route": [pair(o, t) for o, t in zip(pairs.origin_key, pairs.dest_key)]}).sort_values("route").reset_index(drop=True)
+        fact_route = pd.DataFrame({
+            "origin_key": rd.origin_key.values, "dest_key": rd.dest_key.values, "route_key": rd.route_key.values,
+            "period_key": (rd.period.dt.year * 100 + rd.period.dt.month).values,
+            **{m: rd[m].values for m in ROUTE_MEASURES},
+            "provisional": rd.provisional.astype(bool).values, "source_sha": rd.file_sha256.str[:12].values,
+        }).sort_values(["period_key", "origin_key", "dest_key"]).reset_index(drop=True)
+        near = places.near_duplicates(dim_place.place.tolist())
+        (config.PROCESSED).mkdir(parents=True, exist_ok=True)
+        (config.PROCESSED / "place_warnings.json").write_text(json.dumps({"near_duplicate_places": near}, indent=1))
+        extra_tables = {"fact_route_monthly": fact_route, "dim_place": dim_place, "dim_route": dim_route}
+        route_stats = {"route_rows": len(fact_route), "places": len(dim_place), "routes": len(dim_route), "place_warnings": len(near)}
 
     # --- fact
     seg_key = {"domestic": 1, "international": 2}
@@ -105,6 +171,8 @@ def build(man: pd.DataFrame) -> dict:
     h.update(pd.util.hash_pandas_object(man[["s3_url", "title", "status", "parse_status"]].astype(str), index=False).values.tobytes())
     for dim in (dim_airline, dim_period, dim_segment):   # any change to published tables must change the version (cache busting)
         h.update(pd.util.hash_pandas_object(dim.astype(str), index=False).values.tobytes())
+    for t in extra_tables.values():
+        h.update(pd.util.hash_pandas_object(t.astype(str), index=False).values.tobytes())
     h.update((config.ROOT / "semantic" / "semantic.yaml").read_bytes())
     sit = config.DATA / "site_tables.parquet"
     if sit.exists():
@@ -114,7 +182,7 @@ def build(man: pd.DataFrame) -> dict:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    tables = {"fact_airline_monthly": fact, "dim_airline": dim_airline, "dim_period": dim_period, "dim_segment": dim_segment}
+    tables = {"fact_airline_monthly": fact, "dim_airline": dim_airline, "dim_period": dim_period, "dim_segment": dim_segment, **extra_tables}
     for name, df in tables.items():
         df.to_parquet(out / f"{name}.parquet", index=False, compression="zstd", row_group_size=50_000)
 
@@ -123,6 +191,11 @@ def build(man: pd.DataFrame) -> dict:
     # --- semantic catalog (validated against what we actually wrote)
     catalog = make_catalog(tables, version)
     catalog["site"] = site_stats
+    known = yaml.safe_load((config.ROOT / "semantic" / "semantic.yaml").read_text()).get("known_issues", [])
+    catalog["known_issues"] = known
+    catalog["checks"] = []
+    if "fact_route_monthly" in tables:
+        catalog["checks"].append(checks_mod.route_vs_airline(fact, tables["fact_route_monthly"], dim_airline, known))
     (out / "catalog.json").write_text(json.dumps(catalog, indent=1))
 
     # --- provenance + conflicts
@@ -131,6 +204,7 @@ def build(man: pd.DataFrame) -> dict:
     (out / "sources.json").write_text(src.drop(columns="content_sha256").to_json(orient="records"))
     config.PROCESSED.mkdir(parents=True, exist_ok=True)
     conflicts.to_parquet(config.PROCESSED / "conflicts.parquet", index=False)
+    route_conflicts.to_parquet(config.PROCESSED / "route_conflicts.parquet", index=False)
 
     (config.SITE_DATA / "latest.json").write_text(json.dumps({"version": version, "built_at": pd.Timestamp.now("UTC").isoformat()}))
     for old in config.SITE_DATA.iterdir():
@@ -138,26 +212,32 @@ def build(man: pd.DataFrame) -> dict:
             shutil.rmtree(old)
     print(f"publish: version {version}: {len(fact)} fact rows, {len(dim_airline)} airlines, "
           f"{len(dim_period)} months; {n_dupes} duplicate rows dropped, {len(conflicts)} conflicting rows logged; "
-          f"site catalog: {site_stats['files']} files, {site_stats['tables']} tables")
+          f"site catalog: {site_stats['files']} files, {site_stats['tables']} tables; routes: {route_stats}")
     return {"version": version, "rows": len(fact)}
 
 
 def make_catalog(tables: dict, version: str) -> dict:
     model = yaml.safe_load((config.ROOT / "semantic" / "semantic.yaml").read_text())
     errors = []
-    for fid, f in model["facts"].items():
-        if f["table"] not in tables:
-            errors.append(f"fact {fid}: table {f['table']} not published")
+    for fid, f in list(model["facts"].items()):
+        if f["table"] not in tables:                         # fact whose data has not been published yet: omit, don't fail
+            del model["facts"][fid]
             continue
         cols = set(tables[f["table"]].columns)
+        alias_table = {}
         for alias, (fk, dt, dk) in f["joins"].items():
-            if fk not in cols or dk not in tables[dt].columns:
+            alias_table[alias] = dt
+            if dt not in tables or fk not in cols or dk not in tables[dt].columns:
                 errors.append(f"fact {fid}: bad join {alias}")
         for d in f["dimensions"]:
             dm = model["dimensions"][d]
-            if dm["column"] not in tables[dm["table"]].columns:
-                errors.append(f"dimension {d}: column {dm['column']} missing in {dm['table']}")
-            if dm.get("sort_by") and dm["sort_by"] not in tables[dm["table"]].columns:
+            real = alias_table.get(dm["table"])
+            if real is None:
+                errors.append(f"fact {fid}: dimension {d} uses alias {dm['table']} which the fact does not join")
+                continue
+            if dm["column"] not in tables[real].columns:
+                errors.append(f"dimension {d}: column {dm['column']} missing in {real}")
+            if dm.get("sort_by") and dm["sort_by"] not in tables[real].columns:
                 errors.append(f"dimension {d}: sort_by {dm['sort_by']} missing")
         for m in f["measures"]:
             for c in __import__("re").findall(r"f\.(\w+)", model["measures"][m]["expr"]):
@@ -165,12 +245,16 @@ def make_catalog(tables: dict, version: str) -> dict:
                     errors.append(f"measure {m}: fact column {c} missing")
     if errors:
         raise SystemExit("semantic model invalid:\n  " + "\n  ".join(errors))
+    used = {d for f in model["facts"].values() for d in f["dimensions"]}
+    used_m = {m for f in model["facts"].values() for m in f["measures"]}
+    model["dimensions"] = {k: v for k, v in model["dimensions"].items() if k in used}
+    model["measures"] = {k: v for k, v in model["measures"].items() if k in used_m}
     for did, dm in model["dimensions"].items():
-        t = tables[dm["table"]]
+        real = next(f["joins"][dm["table"]][1] for f in model["facts"].values() if dm["table"] in f["joins"])
+        t = tables[real]
         if dm["kind"] == "category":
             sort = dm.get("sort_by") or dm["column"]
-            vals = t.sort_values(sort)[dm["column"]].drop_duplicates().tolist()
-            dm["values"] = vals
+            dm["values"] = t.sort_values(sort)[dm["column"]].drop_duplicates().tolist()
         else:
             dm["min"], dm["max"] = str(t[dm["column"]].min()), str(t[dm["column"]].max())
     model["version"] = version

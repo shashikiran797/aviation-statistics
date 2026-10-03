@@ -43,10 +43,10 @@ def compile_spec(catalog: dict, spec: dict) -> str:
         raise SpecError("choose at least one dimension or measure")
     for d in dims:
         if d not in fact["dimensions"]:
-            raise SpecError(f"unknown dimension {d!r} for {spec['fact']}")
+            raise SpecError(f"unknown dimension {d} for {spec['fact']}; valid dimensions: {', '.join(fact['dimensions'])}")
     for m in meas:
         if m not in fact["measures"]:
-            raise SpecError(f"unknown measure {m!r} for {spec['fact']}")
+            raise SpecError(f"unknown measure {m} for {spec['fact']}; valid measures: {', '.join(fact['measures'])}")
     if len(set(dims)) != len(dims) or len(set(meas)) != len(meas):
         raise SpecError("duplicate field")
     D, M = catalog["dimensions"], catalog["measures"]
@@ -62,9 +62,11 @@ def compile_spec(catalog: dict, spec: dict) -> str:
     used = set(dims) | {f["dim"] for f in filters} | ({top["dim"]} if top else set())
     for d in used:
         if d not in fact["dimensions"]:
-            raise SpecError(f"unknown dimension {d!r} for {spec['fact']}")
+            raise SpecError(f"unknown dimension {d} for {spec['fact']}; valid dimensions: {', '.join(fact['dimensions'])}")
     tables = {D[d]["table"] for d in used}
-    joins = [f"JOIN {dt} ON f.{fk} = {dt}.{dk}" for _, (fk, dt, dk) in fact["joins"].items() if dt in tables]
+    # a dimension's `table` is a join *alias*; one physical table may play several roles (dim_place as origin and destination)
+    joins = [f"JOIN {dt} ON f.{fk} = {dt}.{dk}" if alias == dt else f"JOIN {dt} AS {alias} ON f.{fk} = {alias}.{dk}"
+             for alias, (fk, dt, dk) in fact["joins"].items() if alias in tables]
 
     where = []
     for f in filters:

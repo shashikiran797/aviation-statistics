@@ -103,8 +103,10 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 - **Whole-site crawl**: 16,058 portal nodes, 13.8k file links (9.6k pdf, 4.4k spreadsheets), 1,111 extracted HTML tables. Route kinds
   handled: static pages, rule-book JSON, `name/rb/ct/html`, dynamic applications, `viewDynamicRule*`, token attachments (`dynamicPdf/`).
   Unresolved (24) are dead or mistyped links on dgca.gov.in itself.
-- **Not yet in dashboards** (catalogued, downloadable on demand with `dgca download --section ... --ext ...`): domestic city-pair traffic
-  (monthly, route level), quarterly international traffic, fleet/personnel/financial tables, non-scheduled operators, pre-2014 years,
+- **City-pair traffic done** (Apr 2015 - Aug 2026, 133k directed rows, 147 places, 1.6k routes): own parser (3 layouts, footer-validated),
+  curated place harmonisation, role-playing joins in the compiler, cross-checked against airline totals (125/134 months within 1%; the 9
+  outliers are a documented missing Jet Airways file).
+- **Not yet in dashboards** (catalogued, downloadable on demand with `dgca download --section ... --ext ...`): quarterly international traffic, fleet/personnel/financial tables, non-scheduled operators, pre-2014 years,
   accident/incident reports, licences, aerodromes. Each is an `onboard-section` AI task (see prompts/).
 
 ## Findings worth knowing

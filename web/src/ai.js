@@ -17,37 +17,44 @@ export async function chromeStatus() {
 }
 export const webgpuStatus = () => ({ state: navigator.gpu ? "maybe" : "unsupported" });
 
-function schema(catalog, factId) {
-  const f = catalog.facts[factId];
-  const filter = { type: "object", properties: { dim: { enum: f.dimensions }, op: { enum: ["in", "not_in", "between"] }, values: { type: "array", items: { type: "string" } } }, required: ["dim", "op", "values"] };
+function schema(catalog) {
+  const facts = Object.keys(catalog.facts);
+  const dims = [...new Set(facts.flatMap((f) => catalog.facts[f].dimensions))];
+  const meas = [...new Set(facts.flatMap((f) => catalog.facts[f].measures))];
+  const filter = { type: "object", properties: { dim: { enum: dims }, op: { enum: ["in", "not_in", "between"] }, values: { type: "array", items: { type: "string" } } }, required: ["dim", "op", "values"] };
   return { type: "object", properties: {
-    fact: { enum: [factId] }, dimensions: { type: "array", items: { enum: f.dimensions }, maxItems: 2 }, measures: { type: "array", items: { enum: f.measures }, minItems: 1, maxItems: 3 },
+    fact: { enum: facts }, dimensions: { type: "array", items: { enum: dims }, maxItems: 2 }, measures: { type: "array", items: { enum: meas }, minItems: 1, maxItems: 3 },
     filters: { type: "array", items: filter },
-    top: { anyOf: [{ type: "null" }, { type: "object", properties: { dim: { enum: f.dimensions }, measure: { enum: f.measures }, n: { type: "integer" } }, required: ["dim", "measure", "n"] }] },
+    top: { anyOf: [{ type: "null" }, { type: "object", properties: { dim: { enum: dims }, measure: { enum: meas }, n: { type: "integer" } }, required: ["dim", "measure", "n"] }] },
     sort: { anyOf: [{ type: "null" }, { type: "object", properties: { by: { type: "string" }, dir: { enum: ["asc", "desc"] } }, required: ["by", "dir"] }] },
     limit: { anyOf: [{ type: "null" }, { type: "integer" }] }, viz: { enum: ["auto", "line", "bar", "heatmap", "table"] } }, required: ["fact", "dimensions", "measures"] };
 }
 
-export function systemPrompt(catalog, factId) {
+function factBlock(catalog, factId) {
   const f = catalog.facts[factId];
   const dims = f.dimensions.map((d) => {
     const x = catalog.dimensions[d];
-    const vals = x.values && x.values.length <= 30 ? ` values: ${JSON.stringify(x.values)}` : "";
-    return `- ${d}: ${x.label}. ${x.description || ""}${vals}`;
+    const vals = x.values && x.values.length <= 30 ? ` values: ${JSON.stringify(x.values)}` : x.values ? ` (${x.values.length} values, e.g. ${JSON.stringify(x.values.slice(0, 4))})` : "";
+    return `  - ${d}: ${x.label}.${vals}`;
   }).join("\n");
-  const meas = f.measures.map((m) => `- ${m}: ${catalog.measures[m].label}${catalog.measures[m].additive ? "" : " (ratio)"}`).join("\n");
-  return `You turn questions about Indian airline traffic statistics into ONE JSON chart spec. Reply with JSON only.
-Fact: ${factId} (${f.description.trim().split(". ")[0]}).
-Spec: {"fact":"${factId}","dimensions":[ids],"measures":[ids],"filters":[{"dim":id,"op":"in"|"not_in"|"between","values":[...]}],"top":null|{"dim":id,"measure":id,"n":int},"sort":null|{"by":id,"dir":"asc"|"desc"},"limit":null|int,"viz":"auto"|"line"|"bar"|"heatmap"|"table"}
-Dimensions (use ONLY these ids; filter values must be copied exactly from the lists):
-${dims}
-Measures (use ONLY these ids):
-${meas}
-Rules: first dimension is the X axis, second is the series. Use "period" on X for monthly trends, "fy" for yearly. "Top N airlines" => top {"dim":"airline",...} and "airline" in dimensions. Fiscal years look like "2017-18". Leave filters empty unless the question names a value. Do not add airline_type filters.
+  const meas = f.measures.map((m) => `  - ${m}: ${catalog.measures[m].label}${catalog.measures[m].additive ? "" : " (ratio)"}`).join("\n");
+  return `Fact "${factId}": ${f.description.replace(/\s+/g, " ").trim().split(". ")[0]}.\n Dimensions:\n${dims}\n Measures:\n${meas}`;
+}
+
+export function systemPrompt(catalog) {
+  const ids = Object.keys(catalog.facts);
+  const [a, b] = [ids[0], ids[1] || ids[0]];
+  return `You turn questions about Indian aviation statistics into ONE JSON chart spec. Reply with JSON only.
+Spec: {"fact":id,"dimensions":[ids],"measures":[ids],"filters":[{"dim":id,"op":"in"|"not_in"|"between","values":[...]}],"top":null|{"dim":id,"measure":id,"n":int},"sort":null|{"by":id,"dir":"asc"|"desc"},"limit":null|int,"viz":"auto"|"line"|"bar"|"heatmap"|"table"}
+Pick the fact that fits: airline questions use "airline_monthly"; questions about routes, city pairs, airports or places use "route_monthly". Use ONLY that fact's dimension and measure ids; copy filter values exactly from the lists.
+${ids.map((f) => factBlock(catalog, f)).join("\n")}
+Rules: first dimension is the X axis, second is the series. Use "period" on X for monthly trends, "fy" for yearly. "Top N airlines/routes" => top {"dim":"airline" or "route",...} and that dimension must also be in dimensions. Fiscal years look like "2017-18". Leave filters empty unless the question names a value. Do not add airline_type filters.
 Examples:
-Q: Passengers by fiscal year -> {"fact":"${factId}","dimensions":["fy"],"measures":["pax"],"filters":[],"top":null,"sort":null,"limit":null,"viz":"auto"}
-Q: Top 5 airlines by passengers in 2018-19 by month -> {"fact":"${factId}","dimensions":["month","airline"],"measures":["pax"],"filters":[{"dim":"fy","op":"in","values":["2018-19"]}],"top":{"dim":"airline","measure":"pax","n":5},"sort":null,"limit":null,"viz":"line"}
-Q: Compare load factor of IndiGo and SpiceJet over time -> {"fact":"${factId}","dimensions":["period","airline"],"measures":["pax_load_factor"],"filters":[{"dim":"airline","op":"in","values":["IndiGo","SpiceJet"]}],"top":null,"sort":null,"limit":null,"viz":"line"}`;
+Q: Passengers by fiscal year -> {"fact":"${a}","dimensions":["fy"],"measures":["pax"],"filters":[],"top":null,"sort":null,"limit":null,"viz":"auto"}
+Q: Top 5 airlines by passengers in 2018-19 by month -> {"fact":"${a}","dimensions":["month","airline"],"measures":["pax"],"filters":[{"dim":"fy","op":"in","values":["2018-19"]}],"top":{"dim":"airline","measure":"pax","n":5},"sort":null,"limit":null,"viz":"line"}
+Q: Compare load factor of IndiGo and SpiceJet over time -> {"fact":"${a}","dimensions":["period","airline"],"measures":["pax_load_factor"],"filters":[{"dim":"airline","op":"in","values":["IndiGo","SpiceJet"]}],"top":null,"sort":null,"limit":null,"viz":"line"}
+Q: Busiest 10 routes -> {"fact":"${b}","dimensions":["route"],"measures":["route_pax"],"filters":[],"top":null,"sort":{"by":"route_pax","dir":"desc"},"limit":10,"viz":"auto"}
+Q: Monthly passengers from Delhi to Mumbai -> {"fact":"${b}","dimensions":["period"],"measures":["route_pax"],"filters":[{"dim":"origin","op":"in","values":["Delhi"]},{"dim":"destination","op":"in","values":["Mumbai"]}],"top":null,"sort":null,"limit":null,"viz":"line"}`;
 }
 
 export function parseSpec(text) {
@@ -78,13 +85,13 @@ export async function enableWebLLM(modelId, onProgress) {
 }
 export const enabled = () => ({ chrome: !!chromeSession, webllm: !!webllmEngine });
 
-async function run(backend, system, messages, catalog, factId) {
+async function run(backend, system, messages, catalog) {
   if (window.__DGCA_AI_MOCK) return window.__DGCA_AI_MOCK(system, messages);  // test hook
   if (backend === "chrome") {
     const history = messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
     const sess = await globalThis.LanguageModel.create({ initialPrompts: [{ role: "system", content: system }, ...history],
       expectedInputs: [{ type: "text", languages: ["en"] }], expectedOutputs: [{ type: "text", languages: ["en"] }] });
-    try { return await sess.prompt(messages.at(-1).content, { responseConstraint: schema(catalog, factId) }); }
+    try { return await sess.prompt(messages.at(-1).content, { responseConstraint: schema(catalog) }); }
     finally { sess.destroy?.(); }
   }
   const r = await webllmEngine.chat.completions.create({ messages: [{ role: "system", content: system }, ...messages], temperature: 0, response_format: { type: "json_object" } });
@@ -92,15 +99,15 @@ async function run(backend, system, messages, catalog, factId) {
 }
 
 /** question -> validated spec. One self-repair retry using the compiler's error message. */
-export async function generateSpec(backend, question, catalog, factId = "airline_monthly") {
-  const system = systemPrompt(catalog, factId);
+export async function generateSpec(backend, question, catalog) {
+  const system = systemPrompt(catalog);
   const messages = [{ role: "user", content: question }];
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
-    const text = await run(backend, system, messages, catalog, factId);
+    const text = await run(backend, system, messages, catalog);
     try {
       const spec = parseSpec(text);
-      spec.fact = factId;
+      spec.fact ||= Object.keys(catalog.facts)[0];
       compileSpec(catalog, spec);
       return { spec, attempts: attempt + 1 };
     } catch (e) {

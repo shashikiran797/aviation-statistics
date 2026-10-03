@@ -12,7 +12,7 @@ const el = (tag, props = {}, ...kids) => {
   e.append(...kids);
   return e;
 };
-const FILTER_DIMS = ["fy", "segment", "airline_type", "airline"];
+const FILTER_DIMS = ["fy", "segment", "airline_type", "airline", "origin", "destination", "route"];
 
 const S = { catalog: null, db: null, base: "", dashboards: [], current: null, filters: {}, cache: new Map(), tableMode: new Set(), draft: null, draftIdx: null, meta: null };
 
@@ -57,12 +57,22 @@ function valuePicker(anchor, values, selected, onChange, title) {
   document.querySelectorAll(".pop").forEach((p) => p.remove());
   const pop = el("div", { className: "pop", role: "dialog", ariaLabel: title });
   const sel = new Set(selected);
+  const rows = [];
   const boxes = values.map((v) => {
     const cb = el("input", { type: "checkbox", checked: sel.has(v) });
     cb.addEventListener("change", () => { cb.checked ? sel.add(v) : sel.delete(v); onChange([...values].filter((x) => sel.has(x))); });
-    pop.append(el("label", {}, cb, document.createTextNode(String(v))));
+    const lab = el("label", {}, cb, document.createTextNode(String(v)));
+    rows.push([lab, String(v).toLowerCase()]);
     return cb;
   });
+  if (values.length > 25) {                                    // long lists (165 places, 1,700 routes) need a search box
+    const q = el("input", { type: "search", placeholder: `Search ${values.length} values…`, ariaLabel: "Search values" });
+    q.style.cssText = "width:100%;margin-bottom:6px";
+    q.oninput = () => { const t = q.value.toLowerCase(); let n = 0; for (const [lab, txt] of rows) { const show = !t || txt.includes(t); lab.hidden = !show || ++n > 200; } };
+    pop.append(q);
+    q.oninput();
+  }
+  rows.forEach(([lab]) => pop.append(lab));
   const clear = el("button", { className: "ghost", textContent: "Clear" });
   clear.onclick = () => { sel.clear(); boxes.forEach((b) => (b.checked = false)); onChange([]); };
   const done = el("button", { textContent: "Done" });
@@ -76,10 +86,17 @@ function valuePicker(anchor, values, selected, onChange, title) {
   setTimeout(() => document.addEventListener("pointerdown", close), 0);
 }
 
+/** Filters offered = dimensions the current dashboard's facts actually have (a Routes dashboard has no 'airline'). */
+function activeFilterDims() {
+  const facts = new Set((dash()?.widgets || []).map((w) => w.spec.fact));
+  const have = new Set([...facts].flatMap((f) => S.catalog.facts[f]?.dimensions || []));
+  return FILTER_DIMS.filter((d) => have.has(d));
+}
+
 function renderFilters() {
   const box = $("#filters");
   box.replaceChildren(el("span", { className: "f-lbl", textContent: "Filters" }));
-  for (const d of FILTER_DIMS) {
+  for (const d of activeFilterDims()) {
     const dm = S.catalog.dimensions[d];
     const sel = S.filters[d] || [];
     const b = el("button", { className: "fbtn", id: `f-${d}` }, document.createTextNode(dm.label + ": "), el("b", { textContent: sel.length ? (sel.length > 2 ? `${sel.length} selected` : sel.join(", ")) : d === "airline_type" ? "Airlines (default)" : "All" }));
@@ -106,7 +123,7 @@ function crossFilter(dim, value) {
 function renderDashSelect() {
   const sel = $("#dash-select");
   sel.replaceChildren(...S.dashboards.map((d) => el("option", { value: d.id, textContent: (d.starter ? "★ " : "") + d.name, selected: d.id === S.current })));
-  sel.onchange = () => { S.current = sel.value; renderDashboard(); };
+  sel.onchange = () => { S.current = sel.value; renderFilters(); renderDashboard(); };
 }
 
 function editable() {
@@ -172,8 +189,8 @@ async function renderDashboard() {
 
 function filterNote(spec) {
   const f = S.catalog.facts[spec.fact];
-  const hasType = (spec.filters || []).concat(globalFilterList(spec.fact)).some((x) => x.dim === "airline_type");
-  return hasType ? "" : " · individual airlines only";
+  const defaults = (f.default_filters || []).filter((d) => !(spec.filters || []).concat(globalFilterList(spec.fact)).some((x) => x.dim === d.dim));
+  return defaults.length ? ` · ${defaults.map((d) => `${S.catalog.dimensions[d.dim].label.toLowerCase()}: ${d.values.join(", ").toLowerCase()}s only`).join(" · ")}` : "";
 }
 
 // ---------- widget builder
@@ -186,7 +203,7 @@ function openBuilder(idx = null, draft = null) {
   const fact = $("#b-fact");
   fact.replaceChildren(...Object.entries(S.catalog.facts).map(([id, f]) => el("option", { value: id, textContent: f.label })));
   fact.value = w.spec.fact;
-  fact.onchange = () => { S.draft.spec = { fact: fact.value, dimensions: [], measures: [], filters: [] }; syncBuilder(); };
+  fact.onchange = () => { S.draft.spec = { fact: fact.value, dimensions: [], measures: [S.catalog.facts[fact.value].measures[0]], filters: [] }; syncBuilder(); };
   syncBuilder();
   const dlg = $("#builder");
   if (!dlg.open) dlg.showModal();
@@ -375,9 +392,22 @@ async function openSources() {
   const t = tableFrom(["fiscal_year", "source_files_parsed"], Object.entries(byFy).sort().map(([fy, n]) => ({ fiscal_year: fy, source_files_parsed: n })));
   const sample = src.filter((_, i) => i % Math.max(1, Math.floor(src.length / 8)) === 0).slice(0, 8).map((s) => el("li", {}, el("a", { href: s.s3_url, target: "_blank", rel: "noopener", textContent: s.table_id ? `${s.fy} · ${s.entity} · table ${s.table_id}` : (s.title || s.s3_url) })));
   openModal("Data sources & coverage", el("div", {},
-    el("p", { textContent: `Source: DGCA India – Air Transport Statistics (monthly traffic and operating statistics, scheduled services, ICAO ATR Form A). ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
-    t, el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
-    el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, non-scheduled tables, city-pair traffic and PDF-only tables are in the catalog but not yet in the dashboards." })));
+    el("p", { textContent: `Sources: DGCA India – Air Transport Statistics: monthly traffic and operating statistics by airline (ICAO ATR Form A) and monthly domestic city-pair traffic. ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
+    t, dataQuality(), el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
+    el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, quarterly international traffic, fleet/personnel/financial tables, non-scheduled operations and PDF-only tables are in the catalog but not yet in the dashboards." })));
+}
+
+function dataQuality() {
+  const box = el("div", { id: "dq" });
+  box.append(el("h4", { textContent: "Data quality" }));
+  for (const c of S.catalog.checks || []) {
+    box.append(el("p", {}, el("b", { textContent: c.description + ": " }), document.createTextNode(`${c.within_tolerance} of ${c.months_compared} months agree within ${(c.tolerance * 100).toFixed(0)}% (median ratio ${c.median_ratio}); ${c.deviations.length} deviate, ${c.unexplained} unexplained.`)));
+    const notes = [...new Set(c.deviations.filter((d) => d.explained).map((d) => d.note))];
+    box.append(...notes.map((n) => el("p", { className: "hint", textContent: "Known issue: " + n })));
+  }
+  const gaps = (S.catalog.known_issues || []).filter((k) => !k.explains);
+  box.append(el("ul", {}, ...gaps.map((k) => el("li", { className: "hint", textContent: k.note }))));
+  return box;
 }
 
 // ---------- AI panel

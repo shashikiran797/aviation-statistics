@@ -105,8 +105,9 @@ def test_wasm_matches_native_duckdb_on_every_vector(page):
     vec = json.loads((ROOT / "tests/vectors/spec_cases.json").read_text())["cases"]
     d = sorted((ROOT / "web/data").glob("*/"))[0] if False else next(p for p in (ROOT / "web/data").iterdir() if p.is_dir())
     con = duckdb.connect()
-    for t in ("fact_airline_monthly", "dim_airline", "dim_period", "dim_segment"):
-        con.execute(f"create view {t} as select * from '{d}/{t}.parquet'")
+    for f in sorted(d.glob("*.parquet")):
+        if f.stem.startswith(("fact_", "dim_")):
+            con.execute(f"create view {f.stem} as select * from '{f}'")
     n = 0
     for c in vec:
         if "sql" not in c:
@@ -119,7 +120,7 @@ def test_wasm_matches_native_duckdb_on_every_vector(page):
                 if isinstance(y, (int, float)):
                     assert x == pytest.approx(y, rel=1e-9), c["name"]
         n += 1
-    assert n >= 8
+    assert n >= 12
 
 
 def test_global_filter_changes_numbers_correctly(page, interim):
@@ -247,11 +248,12 @@ def test_share_link_roundtrip_and_export_import(page, browser):
         page.click("#menu >> text=Export JSON")
     exported = json.loads(Path(dl.value.path()).read_text())
     assert len(exported["widgets"]) == 5
+    before = page.locator("#dash-select option").count()
     page.click("#btn-menu")
     with page.expect_file_chooser() as fc:
         page.click("#menu >> text=Import JSON")
     fc.value.set_files(dl.value.path())
-    page.wait_for_function("document.querySelectorAll('#dash-select option').length === 4")
+    page.wait_for_function(f"document.querySelectorAll('#dash-select option').length === {before + 1}")
 
 
 def test_sql_console_allows_select_and_blocks_everything_else(page, nfy):
@@ -271,7 +273,7 @@ def test_sources_modal(page):
     page.click("#btn-menu")
     page.click("#menu >> text=Data sources")
     page.wait_for_selector("#modal table.t")
-    assert "Excel files parsed" in page.inner_text("#modal")
+    assert "Excel files parsed" in page.inner_text("#modal") and "city-pair" in page.inner_text("#modal")
     assert page.locator("#modal table.t tbody tr").count() >= 6
     assert "calendar-year monthly series" in page.inner_text("#modal")
     shot(page, "08-sources")
@@ -473,3 +475,158 @@ def test_missing_months_break_the_line_instead_of_interpolating(page):
     # capacity-by-fiscal-year keeps chronological order top to bottom (ordered dimension is never value-sorted)
     labels = page.locator("#w-cap svg [aria-label='x-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
     assert len(labels) >= 12 and labels == sorted(labels, key=lambda t: t.replace(" (YTD)", "~")), labels
+
+
+# ================================================================ routes (city-pair) dataset
+@pytest.fixture(scope="module")
+def routes():
+    d = next(p for p in (ROOT / "web/data").iterdir() if p.is_dir())
+    f = pd.read_parquet(d / "fact_route_monthly.parquet")
+    for t, k in (("dim_period", "period_key"), ("dim_route", "route_key")):
+        f = f.merge(pd.read_parquet(d / f"{t}.parquet"), on=k)
+    pl = pd.read_parquet(d / "dim_place.parquet").set_index("place_key")
+    f["origin"] = f.origin_key.map(pl.place)
+    f["destination"] = f.dest_key.map(pl.place)
+    return f
+
+
+def goto_routes(pg):
+    pg.select_option("#dash-select", label="★ Routes & airports")
+    pg.wait_for_function("document.querySelectorAll('.card').length === 7 && !document.querySelector('.card-body.loading')")
+
+
+def test_routes_dashboard_kpis_and_top_routes_match_pandas(page, routes):
+    goto_routes(page)
+    assert num(kpi(page, "Route passengers")) == pytest.approx(routes.pax.sum(), rel=1e-9)
+    assert num(kpi(page, "Route freight")) == pytest.approx(routes.freight_t.sum(), rel=1e-6)     # NaN (pre-2018) is skipped, not zero
+    top = routes.groupby("route").pax.sum().sort_values(ascending=False).head(15)
+    labels = page.locator("#w-rt-top svg [aria-label='y-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert labels == list(top.index)                                       # same 15 routes, same order, both directions summed
+    assert "individual airlines" not in page.inner_text("#w-rt-top")        # airline-only default filter must not leak onto route widgets
+    shot(page, "16-routes-dashboard")
+
+
+def test_filter_bar_follows_the_dashboards_facts(page):
+    assert page.locator("#f-airline").count() == 1 and page.locator("#f-origin").count() == 0
+    goto_routes(page)
+    assert page.locator("#f-airline").count() == 0 and page.locator("#f-segment").count() == 0
+    assert all(page.locator(f"#f-{d}").count() == 1 for d in ("fy", "origin", "destination", "route"))
+    page.select_option("#dash-select", label="★ Airline comparison")
+    page.wait_for_function("document.querySelector('#f-airline')")
+    assert page.locator("#f-route").count() == 0
+
+
+def test_searchable_picker_filters_by_route_and_matches_pandas(page, routes):
+    goto_routes(page)
+    page.click("#f-route")
+    search = page.locator(".pop input[type=search]")
+    expect(search).to_be_visible()                                         # 1,699 routes need search
+    search.fill("delhi – mumbai")
+    page.wait_for_function("[...document.querySelectorAll('.pop label')].filter(l => !l.hidden).length === 1")
+    shot(page, "17-route-picker-search")
+    page.locator(".pop label:not([hidden])").click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-route b').textContent.includes('Mumbai')")
+    x = routes[routes.route == "Delhi – Mumbai"]
+    assert num(kpi(page, "Route passengers")) == pytest.approx(x.pax.sum(), rel=1e-9)
+    # the same route in one direction only: origin filter on top
+    page.click("#f-origin")
+    page.locator(".pop input[type=search]").fill("delhi")
+    page.locator(".pop label:not([hidden])", has_text="Delhi").first.click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-origin b').textContent.includes('Delhi')")
+    assert num(kpi(page, "Route passengers")) == pytest.approx(x[x.origin == "Delhi"].pax.sum(), rel=1e-9)
+    assert x[x.origin == "Delhi"].pax.sum() < x.pax.sum()
+    shot(page, "18-route-filtered")
+
+
+def test_fiscal_year_filter_applies_across_facts(page, routes):
+    goto_routes(page)
+    page.click("#f-fy")
+    page.locator(".pop label", has_text="2018-19").click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-fy b').textContent.includes('2018-19')")
+    assert num(kpi(page, "Route passengers")) == pytest.approx(routes[routes.fy == "2018-19"].pax.sum(), rel=1e-9)
+    page.select_option("#dash-select", label="★ Air traffic overview")        # the same global filter still scopes the airline fact
+    page.wait_for_function("!document.querySelector('.card-body.loading')")
+    assert 130e6 < num(kpi(page, "Passengers carried")) < 175e6
+
+
+def test_route_bar_click_crossfilters_and_heatmap_renders(page):
+    goto_routes(page)
+    page.locator("#w-rt-top g[aria-label='bar'] > *").first.click()
+    page.wait_for_function("document.querySelector('#f-route b').textContent.includes('–')")
+    page.click("text=Clear all")
+    page.wait_for_function("!document.querySelector('.card-body.loading')")
+    assert page.locator("#w-rt-heat g[aria-label='cell'] > *").count() >= 100
+
+
+def test_builder_with_route_fact_uses_role_playing_joins(page, routes):
+    page.click("#btn-new")
+    page.select_option("#b-fact", label="Domestic routes (city pairs)")
+    page.wait_for_function("document.querySelector('#s-measures .chip')")
+    assert page.locator("#s-measures .chip", has_text="Route passengers").count() == 1      # sensible default measure
+    page.locator("#b-dims .chip", has_text="Origin").first.click()
+    page.locator("#b-dims .chip", has_text="Destination").first.click()
+    page.fill("#b-topn", "5")
+    page.wait_for_function("document.querySelector('#b-sql').textContent.includes('dim_place AS dim_destination')")
+    sql = page.text_content("#b-sql")
+    assert "JOIN dim_place AS dim_origin" in sql and "JOIN dim_place AS dim_destination" in sql
+    assert "airline_type" not in sql                                       # no airline default filter on a route fact
+    page.wait_for_selector("#b-preview svg, #b-preview table")
+    got = page.evaluate("async (s) => (await window.__dgca.query(s)).rows.length", sql)
+    assert got > 0
+    exp = routes.groupby("origin").pax.sum().nlargest(5).index
+    shot(page, "19-builder-route-fact")
+
+
+def test_ai_picks_the_route_fact_and_prompt_describes_both_facts(page):
+    spec = {"fact": "route_monthly", "dimensions": ["period"], "measures": ["route_pax"],
+            "filters": [{"dim": "origin", "op": "in", "values": ["Delhi"]}, {"dim": "destination", "op": "in", "values": ["Mumbai"]}],
+            "top": None, "sort": None, "limit": None, "viz": "line"}
+    page.evaluate("s => { window.__seen = null; window.__DGCA_AI_MOCK = async (sys) => { window.__seen = sys; return JSON.stringify(s); }; }", spec)
+    page.click("#btn-ai"); page.fill("#ai-q", "monthly passengers from Delhi to Mumbai"); page.click("#ai-ask")
+    page.wait_for_selector("#builder[open]")
+    page.wait_for_function("document.querySelector('#b-sql').textContent.includes('dim_origin')")
+    assert page.text_content("#b-fact-desc").startswith("Passengers, freight and mail carried between")
+    sysmsg = page.evaluate("window.__seen")
+    for needle in ('Fact "airline_monthly"', 'Fact "route_monthly"', "route_pax", "pax_load_factor", "IndiGo", "Busiest 10 routes"):
+        assert needle in sysmsg, needle
+    shot(page, "20-ai-route-question")
+
+
+def test_ai_route_spec_for_an_airline_dimension_is_repaired(page):
+    bad = {"fact": "route_monthly", "dimensions": ["airline"], "measures": ["route_pax"]}
+    good = {"fact": "route_monthly", "dimensions": ["route"], "measures": ["route_pax"], "sort": {"by": "route_pax", "dir": "desc"}, "limit": 10}
+    page.evaluate("([b, g]) => { let n = 0; window.__DGCA_AI_MOCK = async (s, m) => { n++; window.__last = m.at(-1).content; return JSON.stringify(n === 1 ? b : g); }; }", [bad, good])
+    page.click("#btn-ai"); page.fill("#ai-q", "busiest routes"); page.click("#ai-ask")
+    page.wait_for_selector("#builder[open]")
+    last = page.evaluate("window.__last")
+    assert "unknown dimension airline for route_monthly" in last and "valid dimensions: origin" in last   # the compiler's fact-specific error reaches the model
+
+
+def test_sources_modal_documents_data_quality_and_known_gaps(page):
+    page.click("#btn-menu")
+    page.click("#menu >> text=Data sources")
+    page.wait_for_selector("#dq")
+    txt = page.inner_text("#dq")
+    assert "125 of 134 months agree" in txt and "0 unexplained" in txt
+    assert "Jet Airways" in txt and "2015" in txt
+    assert "May 2021" in txt and "May 2024" in txt
+    shot(page, "21-data-quality")
+
+
+def test_routes_dashboard_dark_and_mobile(page, browser):
+    goto_routes(page)
+    page.click("#btn-theme")
+    page.wait_for_function("!document.querySelector('.card-body.loading')")
+    shot(page, "22-routes-dark", full_page=True)
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2)
+    pg = ctx.new_page()
+    pg.goto(URL)
+    pg.wait_for_selector("body[data-ready='1']", timeout=90000)
+    pg.select_option("#dash-select", label="★ Routes & airports")
+    pg.wait_for_function("document.querySelectorAll('.card').length === 7 && !document.querySelector('.card-body.loading')")
+    assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+    pg.screenshot(path=str(SHOTS / "23-routes-mobile.png"), full_page=True)
+    ctx.close()

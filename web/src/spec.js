@@ -29,8 +29,8 @@ export function compileSpec(catalog, spec) {
   const fact = catalog.facts[spec.fact];
   const dims = spec.dimensions || [], meas = spec.measures || [];
   if (!dims.length && !meas.length) throw new SpecError("choose at least one dimension or measure");
-  for (const d of dims) if (!fact.dimensions.includes(d)) throw new SpecError(`unknown dimension ${d}`);
-  for (const m of meas) if (!fact.measures.includes(m)) throw new SpecError(`unknown measure ${m}`);
+  for (const d of dims) if (!fact.dimensions.includes(d)) throw new SpecError(`unknown dimension ${d} for ${spec.fact}; valid dimensions: ${fact.dimensions.join(", ")}`);
+  for (const m of meas) if (!fact.measures.includes(m)) throw new SpecError(`unknown measure ${m} for ${spec.fact}; valid measures: ${fact.measures.join(", ")}`);
   if (new Set(dims).size !== dims.length || new Set(meas).size !== meas.length) throw new SpecError("duplicate field");
   const D = catalog.dimensions, M = catalog.measures;
   const dexpr = (d) => `${D[d].table}.${D[d].column}`;
@@ -39,9 +39,11 @@ export function compileSpec(catalog, spec) {
   const filters = effectiveFilters(catalog, spec);
   const top = spec.top;
   const used = new Set([...dims, ...filters.map((f) => f.dim), ...(top ? [top.dim] : [])]);
-  for (const d of used) if (!fact.dimensions.includes(d)) throw new SpecError(`unknown dimension ${d}`);
+  for (const d of used) if (!fact.dimensions.includes(d)) throw new SpecError(`unknown dimension ${d} for ${spec.fact}; valid dimensions: ${fact.dimensions.join(", ")}`);
   const tables = new Set([...used].map((d) => D[d].table));
-  const joins = Object.values(fact.joins).filter(([, dt]) => tables.has(dt)).map(([fk, dt, dk]) => `JOIN ${dt} ON f.${fk} = ${dt}.${dk}`);
+  // a dimension's `table` is a join alias; one physical table may play several roles (dim_place as origin and destination)
+  const joins = Object.entries(fact.joins).filter(([alias]) => tables.has(alias))
+    .map(([alias, [fk, dt, dk]]) => (alias === dt ? `JOIN ${dt} ON f.${fk} = ${dt}.${dk}` : `JOIN ${dt} AS ${alias} ON f.${fk} = ${alias}.${dk}`));
 
   const where = [];
   for (const f of filters) {

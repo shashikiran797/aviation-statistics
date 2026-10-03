@@ -7,7 +7,7 @@ import pandas as pd
 from .. import config
 import re
 
-from . import monthly, monthly_cal
+from . import city_pair, monthly, monthly_cal
 from .registry import dataset_for, operator_from_title
 
 
@@ -31,6 +31,22 @@ def run(df: pd.DataFrame, only_pending=True, log=print) -> dict:
             continue
         path = config.ROOT / row["raw_path"] if not str(row["raw_path"]).startswith("/") else row["raw_path"]
         try:
+            if ds["dataset"] == "city_pair_monthly":
+                fn = str(row["portal_path"]).rsplit("/", 1)[-1]
+                parsed = city_pair.read(path, fn)
+                problems = city_pair.validate(parsed)
+                hard = [x for x in problems if not x.startswith("warn:")]
+                stats["warnings"] += len(problems) - len(hard)
+                if hard:
+                    raise monthly.LayoutError("; ".join(hard))
+                period = parsed["title_period"] if parsed["title_period"] is not None else parsed["file_period"]
+                tidy = city_pair.directional(parsed, period).assign(source_url=row["s3_url"], file_sha256=row["content_sha256"], parsed_by="code")
+                d2 = config.INTERIM / "city_pair"
+                d2.mkdir(parents=True, exist_ok=True)
+                tidy.to_parquet(d2 / f"{row['content_sha256']}.parquet", index=False)
+                df.at[i, "parse_status"], df.at[i, "parse_rows"], df.at[i, "error"] = "ok", len(tidy), None
+                stats["ok"] += 1
+                continue
             if ds["dataset"] == "airline_monthly_cal":
                 fn = str(row["portal_path"]).rsplit("/", 1)[-1]
                 ym = re.search(r"(\d{2})\.xlsx$", fn, re.I)

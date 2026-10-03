@@ -18,7 +18,31 @@ facts:
     dimensions: [airline, airline_type, fy, quarter, month, period, segment]
     measures: [pax, departures, pax_load_factor, pax_per_departure, pax_km, ask, hours, kms, cargo_t, tkm_total, atk, weight_load_factor]
 
+  route_monthly:
+    label: Domestic routes (city pairs)
+    table: fact_route_monthly
+    grain: directed city pair x month (scheduled domestic services)
+    description: >
+      Passengers, freight and mail carried between pairs of Indian places, one row per direction per month, from DGCA's
+      city-pair statistics (2015 onward; freight and mail only from 2018). "Origin" is where the flight departed.
+      Summing both directions by Route gives the pair total. Three months have no data (missing at the source): Jun 2019, May 2021
+      and May 2024. Place names are harmonised across DGCA's spelling changes; Goa's airports and Mumbai/Navi Mumbai roll up in the
+      "city" dimensions. Not split by airline.
+    joins:
+      dim_origin: [origin_key, dim_place, place_key]
+      dim_destination: [dest_key, dim_place, place_key]
+      dim_route: [route_key, dim_route, route_key]
+      dim_period: [period_key, dim_period, period_key]
+    default_filters: []
+    dimensions: [origin, origin_city, destination, destination_city, route, fy, quarter, month, period]
+    measures: [route_pax, route_freight_t, route_mail_t]
+
 dimensions:
+  origin:           {label: Origin, table: dim_origin, column: place, kind: category, description: "Place the passengers departed from (airport/city as published by DGCA; names harmonised)."}
+  origin_city:      {label: Origin city, table: dim_origin, column: city, kind: category, description: "Groups airports serving one city (Mumbai + Navi Mumbai; the Goa airports)."}
+  destination:      {label: Destination, table: dim_destination, column: place, kind: category, description: "Place the passengers travelled to."}
+  destination_city: {label: Destination city, table: dim_destination, column: city, kind: category, description: "Groups airports serving one city."}
+  route:            {label: Route (both directions), table: dim_route, column: route, kind: category, description: "Unordered city pair, e.g. Delhi – Mumbai; sums both directions."}
   airline:      {label: Airline, table: dim_airline, column: airline, kind: category, description: "Operator name (aliases merged, e.g. 'AIR ASIA excel' -> AirAsia India)."}
   airline_type: {label: Entity type, table: dim_airline, column: airline_type, kind: category, description: "Airline, or Aggregate for DGCA roll-ups (all scheduled / national / private)."}
   fy:           {label: Fiscal year, table: dim_period, column: fy, kind: category, ordered: true, description: "April-March fiscal year, e.g. 2017-18."}
@@ -28,6 +52,9 @@ dimensions:
   segment:      {label: Segment, table: dim_segment, column: segment, kind: category, description: "Scheduled domestic or international services."}
 
 measures:
+  route_pax:         {label: Route passengers, expr: "SUM(f.pax)", unit: passengers, additive: true, format: compact}
+  route_freight_t:   {label: Route freight (tonnes), expr: "SUM(f.freight_t)", unit: tonnes, additive: true, format: compact, description: "Published from 2018; earlier months are blank, not zero."}
+  route_mail_t:      {label: Route mail (tonnes), expr: "SUM(f.mail_t)", unit: tonnes, additive: true, format: compact}
   pax:               {label: Passengers carried, expr: "SUM(f.pax)", unit: passengers, additive: true, format: compact}
   departures:        {label: Departures, expr: "SUM(f.departures)", unit: flights, additive: true, format: compact}
   hours:             {label: Aircraft hours flown, expr: "SUM(f.hours)", unit: hours, additive: true, format: compact}
@@ -40,5 +67,24 @@ measures:
   pax_load_factor:   {label: Passenger load factor, expr: "100.0 * SUM(f.pax_km_million) / NULLIF(SUM(f.ask_million), 0)", unit: "%", additive: false, format: percent, description: "Passenger-km / available seat-km. Recomputed from sums, never averaged."}
   weight_load_factor: {label: Weight load factor, expr: "100.0 * SUM(f.tkm_total_million) / NULLIF(SUM(f.atk_million), 0)", unit: "%", additive: false, format: percent}
   pax_per_departure: {label: Passengers per departure, expr: "SUM(f.pax) * 1.0 / NULLIF(SUM(f.departures), 0)", unit: passengers, additive: false, format: number}
+
+known_issues:        # documented gaps in the source data; checks that match one are reported but not failed
+  - id: jet_airways_2015
+    explains: route_vs_airline
+    from: "2015-04"
+    to: "2015-12"
+    note: "Jet Airways' monthly file for Apr-Dec 2015 is missing at the source (HTTP 403 on DGCA's file store), so airline totals for these months exclude Jet Airways (about 1.3 million passengers a month). City-pair totals are complete."
+  - id: june_2019_citypair_mislabelled
+    file: "DOM CITYPAIR DATA, JUNE 2019.xlsx"
+    note: "Published under the city-pair name but contains an airline/country list, not traffic data."
+  - id: total_domestic_2019_atk
+    file: "totaldom19.xlsx"
+    note: "Available tonne-km months sum to 18,312.7 but the sheet's own total says 18,507.6 (1% off). Quarantined rather than guessing which is right."
+  - id: goa_airports
+    note: "Goa has two airports since Jan 2023. DGCA published plain 'Goa' for most months, so those figures cannot be split between Dabolim and Mopa; use the Origin city / Destination city 'Goa' to analyse Goa as a whole."
+  - id: hyderabad_to_hyderabad
+    note: "January 2025 lists one 'Hyderabad to HYDERABAD' row (2 passengers). It is kept so the month still reconciles to the sheet total."
+  - id: city_pair_gaps
+    note: "City-pair files are missing at the source for May 2021 and May 2024, and the file named 'June 2019' contains an unrelated airline list. Those three months have no route rows."
 
 dashboards: []

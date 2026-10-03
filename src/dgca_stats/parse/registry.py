@@ -4,6 +4,7 @@ import re
 MONTHLY_RE = re.compile(r"^MONTHLY TRAFFIC AND OPERATING STATISTICS OF .*\bON SCHEDULED (DOMESTIC|INTERNATIONAL) SERVICES", re.I | re.S)
 
 
+CITYPAIR_RE = re.compile(r"/airTransport/domestic/monthly/[^/]*CITY\s*PAIR[^/]*\.xlsx$", re.I)
 CAL_RE = re.compile(r"/airTransport/domestic/monthly/(?![^/]*CITY\s*PAIR)[^/]+\.xlsx$", re.I)
 
 
@@ -13,6 +14,8 @@ def operator_from_title(title: str) -> str:
 
 def dataset_for(title: str, ext: str, path: str = "") -> dict | None:
     """Return {dataset, segment?} if this file is something we know how to parse, else None."""
+    if ext == "xlsx" and path and CITYPAIR_RE.search(path or ""):
+        return {"dataset": "city_pair_monthly", "segment": "domestic"}
     if ext == "xlsx" and path and CAL_RE.search(path or ""):
         return {"dataset": "airline_monthly_cal", "segment": None}
     t = " ".join((title or "").split())
