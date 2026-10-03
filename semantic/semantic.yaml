@@ -37,7 +37,62 @@ facts:
     dimensions: [origin, origin_city, destination, destination_city, route, fy, quarter, month, period]
     measures: [route_pax, route_freight_t, route_mail_t]
 
+  intl_airline_monthly:
+    label: International traffic by carrier
+    table: fact_intl_airline_monthly
+    grain: carrier x month x direction (scheduled international services)
+    description: >
+      Passengers and freight on scheduled international services to and from India, by carrier (Indian and foreign), month and direction,
+      from DGCA's quarterly international tables (Jan 2015 onward). Excludes Indian carriers' flights entirely outside India
+      (see the city-pair fact, direction "Outside India"). Foreign carriers appear only here, not in the airline statistics.
+    joins:
+      dim_carrier: [carrier_key, dim_carrier, carrier_key]
+      dim_direction: [direction_key, dim_direction, direction_key]
+      dim_period: [period_key, dim_period, period_key]
+    default_filters: []
+    dimensions: [carrier, carrier_origin, direction, fy, quarter, month, period]
+    measures: [intl_pax, intl_freight_t]
+
+  intl_country_quarterly:
+    label: International traffic by country
+    table: fact_intl_country_quarterly
+    grain: country x quarter x direction (scheduled international services)
+    description: >
+      Passengers and freight on scheduled international services between India and each country, per quarter and direction
+      (Jan 2015 onward). Quarterly only. The United Arab Emirates figure includes Ajman, Dubai, Fujairah, Ras al-Khaimah and Umm al-Quwain.
+    joins:
+      dim_country: [country_key, dim_country, country_key]
+      dim_direction: [direction_key, dim_direction, direction_key]
+      dim_period: [period_key, dim_period, period_key]
+    default_filters: []
+    dimensions: [country, direction, fy, quarter]
+    measures: [intl_pax, intl_freight_t]
+
+  intl_citypair_quarterly:
+    label: International routes (city pairs)
+    table: fact_intl_citypair_quarterly
+    grain: directed city pair x quarter x direction (scheduled international services)
+    description: >
+      Passengers and freight between Indian and foreign cities, one row per direction per quarter (Jan 2015 onward), plus Indian carriers'
+      flights between two foreign cities (direction "Outside India"). Summing both directions by Route gives the pair total.
+      Quarterly only; Q1 2026 is missing at the source. Not split by airline.
+    joins:
+      dim_origin: [origin_key, dim_place, place_key]
+      dim_destination: [dest_key, dim_place, place_key]
+      dim_route: [route_key, dim_route, route_key]
+      dim_direction: [direction_key, dim_direction, direction_key]
+      dim_period: [period_key, dim_period, period_key]
+    default_filters: []
+    dimensions: [origin, origin_city, origin_domain, destination, destination_city, destination_domain, route, direction, fy, quarter]
+    measures: [intl_pax, intl_freight_t]
+
 dimensions:
+  carrier:          {label: Carrier, table: dim_carrier, column: carrier, kind: category, description: "Airline operating scheduled international services (Indian and foreign); names harmonised across 46 quarters."}
+  carrier_origin:   {label: Carrier type, table: dim_carrier, column: carrier_origin, kind: category, description: "Indian (domestic) carrier or Foreign carrier, as DGCA classifies them."}
+  direction:        {label: Direction, table: dim_direction, column: direction, kind: category, description: "To India, From India, or Outside India (Indian carriers' flights between two foreign cities)."}
+  country:          {label: Country, table: dim_country, column: country, kind: category, description: "Foreign country at the other end of the flight."}
+  origin_domain:    {label: Origin region, table: dim_origin, column: domain, kind: category, description: "India or Foreign."}
+  destination_domain: {label: Destination region, table: dim_destination, column: domain, kind: category, description: "India or Foreign."}
   origin:           {label: Origin, table: dim_origin, column: place, kind: category, description: "Place the passengers departed from (airport/city as published by DGCA; names harmonised)."}
   origin_city:      {label: Origin city, table: dim_origin, column: city, kind: category, description: "Groups airports serving one city (Mumbai + Navi Mumbai; the Goa airports)."}
   destination:      {label: Destination, table: dim_destination, column: place, kind: category, description: "Place the passengers travelled to."}
@@ -52,6 +107,8 @@ dimensions:
   segment:      {label: Segment, table: dim_segment, column: segment, kind: category, description: "Scheduled domestic or international services."}
 
 measures:
+  intl_pax:          {label: International passengers, expr: "SUM(f.pax)", unit: passengers, additive: true, format: compact}
+  intl_freight_t:    {label: International freight (tonnes), expr: "SUM(f.freight_t)", unit: tonnes, additive: true, format: compact}
   route_pax:         {label: Route passengers, expr: "SUM(f.pax)", unit: passengers, additive: true, format: compact}
   route_freight_t:   {label: Route freight (tonnes), expr: "SUM(f.freight_t)", unit: tonnes, additive: true, format: compact, description: "Published from 2018; earlier months are blank, not zero."}
   route_mail_t:      {label: Route mail (tonnes), expr: "SUM(f.mail_t)", unit: tonnes, additive: true, format: compact}
@@ -70,10 +127,36 @@ measures:
 
 known_issues:        # documented gaps in the source data; checks that match one are reported but not failed
   - id: jet_airways_2015
-    explains: route_vs_airline
+    explains: [route_vs_airline, intl_vs_monthly_airline_stats]
     from: "2015-04"
     to: "2015-12"
     note: "Jet Airways' monthly file for Apr-Dec 2015 is missing at the source (HTTP 403 on DGCA's file store), so airline totals for these months exclude Jet Airways (about 1.3 million passengers a month). City-pair totals are complete."
+  - id: intl_mar_2022
+    explains: intl_vs_monthly_airline_stats
+    from: "2022-01"
+    to: "2022-01"
+    note: "Q1 2022: the monthly airline statistics report almost no international passengers for March 2022 (e.g. Air India and Air India Express 0) while DGCA's quarterly tables report about 1.5 million for the same Indian airlines, the month scheduled international flights resumed. The two DGCA publications disagree and both are shown as published."
+  - id: intl_nov_2022
+    explains: intl_vs_monthly_airline_stats
+    from: "2022-10"
+    to: "2022-10"
+    note: "Q4 2022: the monthly airline statistics show 0 international passengers for Air India Express in Nov-Dec 2022; the quarterly tables show about 322,000 per month. The publications disagree."
+  - id: intl_may_2024
+    explains: intl_vs_monthly_airline_stats
+    from: "2024-04"
+    to: "2024-04"
+    note: "Q2 2024: IndiGo's May 2024 international passengers are about 190,000 lower in the monthly airline statistics than in the quarterly tables. The publications disagree."
+  - id: intl_q3_2019
+    explains: intl_vs_monthly_airline_stats
+    from: "2019-07"
+    to: "2019-07"
+    note: "Q3 2019: Air India's international passengers differ by about 10,000 between the monthly airline statistics and the quarterly tables (0.45% of the quarter) beyond what its flights outside India explain. The publications disagree slightly."
+  - id: intl_missing_files
+    note: "Quarterly international files missing at the source: Q1 2025 airline-wise table (the monthly table for that quarter is present) and Q1 2026 city-pair table, so Q1 2026 has no city-pair rows."
+  - id: intl_footnoted_freight
+    note: "Q4 2016 and Q1 2017 carry footnote asterisks on some Air India Express freight figures; the printed totals include them but the country and city-pair breakdowns do not (0.9% of freight in Q4 2016)."
+  - id: intl_foreign_pairs_in_india_block
+    note: "DGCA lists a handful of foreign-to-foreign city pairs (e.g. Bucharest-Istanbul, Male-Dhaka, Vancouver-Toronto) in the 'to/from India' block of the city-pair table. They are kept (the printed totals include them) but tagged 'Outside India'."
   - id: june_2019_citypair_mislabelled
     file: "DOM CITYPAIR DATA, JUNE 2019.xlsx"
     note: "Published under the city-pair name but contains an airline/country list, not traffic data."

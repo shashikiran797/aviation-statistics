@@ -106,7 +106,11 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
 - **City-pair traffic done** (Apr 2015 - Aug 2026, 133k directed rows, 147 places, 1.6k routes): own parser (3 layouts, footer-validated),
   curated place harmonisation, role-playing joins in the compiler, cross-checked against airline totals (125/134 months within 1%; the 9
   outliers are a documented missing Jet Airways file).
-- **Not yet in dashboards** (catalogued, downloadable on demand with `dgca download --section ... --ext ...`): quarterly international traffic, fleet/personnel/financial tables, non-scheduled operators, pre-2014 years,
+- **Quarterly international traffic done** (Q1 2015 - Q2 2026; 46 quarters x 4 tables): carrier (Indian + 124 foreign), country and city-pair facts with a
+  shared Direction dimension; every sheet validated against its own printed totals; footer misprints judged against an independent table of the same quarter;
+  3-way table reconciliation (91/91) and an exact reconciliation with the monthly airline statistics (monthly = quarterly + Indian carriers' flights outside India,
+  to the passenger, in every clean quarter).
+- **Not yet in dashboards** (catalogued, downloadable on demand with `dgca download --section ... --ext ...`): fleet/personnel/financial tables, non-scheduled operators, pre-2014 years,
   accident/incident reports, licences, aerodromes. Each is an `onboard-section` AI task (see prompts/).
 
 ## Findings worth knowing
@@ -117,3 +121,4 @@ Pipeline (Python, runs in CI) -> versioned Parquet + manifest -> static site (Du
   (Air India Express, Blue Dart) and are logged in `data/processed/conflicts.parquet`, final value wins.
 - One source inconsistency kept in quarantine on purpose (`totaldom19`: capacity months do not sum to the published total).
 - Scheduled international flights were suspended Mar 2020 - Mar 2022, so those months are real gaps (charts break the line).
+- Different DGCA publications disagree in a few documented places (Q1 2022 monthly stats vs quarterly tables; Air India Express Nov-Dec 2022; IndiGo May 2024; Jet Airways Apr-Dec 2015 file missing). All are listed under `known_issues` in `semantic/semantic.yaml`, shown in the app's Data quality panel, and the publish checks fail on any *new* unexplained difference.

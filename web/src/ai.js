@@ -46,7 +46,7 @@ export function systemPrompt(catalog) {
   const [a, b] = [ids[0], ids[1] || ids[0]];
   return `You turn questions about Indian aviation statistics into ONE JSON chart spec. Reply with JSON only.
 Spec: {"fact":id,"dimensions":[ids],"measures":[ids],"filters":[{"dim":id,"op":"in"|"not_in"|"between","values":[...]}],"top":null|{"dim":id,"measure":id,"n":int},"sort":null|{"by":id,"dir":"asc"|"desc"},"limit":null|int,"viz":"auto"|"line"|"bar"|"heatmap"|"table"}
-Pick the fact that fits: airline questions use "airline_monthly"; questions about routes, city pairs, airports or places use "route_monthly". Use ONLY that fact's dimension and measure ids; copy filter values exactly from the lists.
+Pick the fact that fits: Indian airlines' domestic/international statistics use "airline_monthly"; domestic routes, city pairs and airports use "route_monthly"; international traffic (foreign carriers, countries, to/from India, international routes) uses "intl_airline_monthly" (by carrier), "intl_country_quarterly" (by country) or "intl_citypair_quarterly" (international routes). Use ONLY that fact's dimension and measure ids; copy filter values exactly from the lists.
 ${ids.map((f) => factBlock(catalog, f)).join("\n")}
 Rules: first dimension is the X axis, second is the series. Use "period" on X for monthly trends, "fy" for yearly. "Top N airlines/routes" => top {"dim":"airline" or "route",...} and that dimension must also be in dimensions. Fiscal years look like "2017-18". Leave filters empty unless the question names a value. Do not add airline_type filters.
 Examples:
@@ -54,6 +54,8 @@ Q: Passengers by fiscal year -> {"fact":"${a}","dimensions":["fy"],"measures":["
 Q: Top 5 airlines by passengers in 2018-19 by month -> {"fact":"${a}","dimensions":["month","airline"],"measures":["pax"],"filters":[{"dim":"fy","op":"in","values":["2018-19"]}],"top":{"dim":"airline","measure":"pax","n":5},"sort":null,"limit":null,"viz":"line"}
 Q: Compare load factor of IndiGo and SpiceJet over time -> {"fact":"${a}","dimensions":["period","airline"],"measures":["pax_load_factor"],"filters":[{"dim":"airline","op":"in","values":["IndiGo","SpiceJet"]}],"top":null,"sort":null,"limit":null,"viz":"line"}
 Q: Busiest 10 routes -> {"fact":"${b}","dimensions":["route"],"measures":["route_pax"],"filters":[],"top":null,"sort":{"by":"route_pax","dir":"desc"},"limit":10,"viz":"auto"}
+Q: Which countries have the most passengers? -> {"fact":"intl_country_quarterly","dimensions":["country"],"measures":["intl_pax"],"filters":[],"top":null,"sort":{"by":"intl_pax","dir":"desc"},"limit":10,"viz":"auto"}
+Q: Emirates vs Qatar Airways passengers by quarter -> {"fact":"intl_airline_monthly","dimensions":["quarter","carrier"],"measures":["intl_pax"],"filters":[{"dim":"carrier","op":"in","values":["Emirates","Qatar Airways"]}],"top":null,"sort":null,"limit":null,"viz":"line"}
 Q: Monthly passengers from Delhi to Mumbai -> {"fact":"${b}","dimensions":["period"],"measures":["route_pax"],"filters":[{"dim":"origin","op":"in","values":["Delhi"]},{"dim":"destination","op":"in","values":["Mumbai"]}],"top":null,"sort":null,"limit":null,"viz":"line"}`;
 }
 

@@ -1,6 +1,9 @@
 // Curated starter dashboards. Specs are plain chart specs over the semantic model; users fork them on first edit.
 const w = (id, title, spec, size = 6, fact = "airline_monthly") => ({ id, title, spec: { fact, ...spec }, w: size });
 const r = (id, title, spec, size = 6) => w(id, title, spec, size, "route_monthly");
+const ic = (id, title, spec, size = 6) => w(id, title, spec, size, "intl_airline_monthly");
+const ik = (id, title, spec, size = 6) => w(id, title, spec, size, "intl_country_quarterly");
+const ip = (id, title, spec, size = 6) => w(id, title, spec, size, "intl_citypair_quarterly");
 
 export const STARTERS = [
   {
@@ -37,6 +40,19 @@ export const STARTERS = [
       r("rt-heat", "Passengers: route × fiscal year (top 12 routes)", { dimensions: ["fy", "route"], measures: ["route_pax"], top: { dim: "route", measure: "route_pax", n: 12 }, viz: "heatmap" }, 12),
       r("rt-freight", "Freight by route (tonnes, 2018 onward)", { dimensions: ["route"], measures: ["route_freight_t"], sort: { by: "route_freight_t", dir: "desc" }, limit: 12 }),
       r("rt-tbl", "Top routes table", { dimensions: ["route"], measures: ["route_pax", "route_freight_t", "route_mail_t"], sort: { by: "route_pax", dir: "desc" }, limit: 25, viz: "table" }),
+    ],
+  },
+  {
+    id: "international", name: "International traffic", starter: true, widgets: [
+      ic("in-kpi", "International passengers and freight (selected filters)", { measures: ["intl_pax", "intl_freight_t"] }, 12),
+      ic("in-month", "Monthly passengers, to vs from India", { dimensions: ["period", "direction"], measures: ["intl_pax"] }, 12),
+      ic("in-share", "Indian vs foreign carriers, by fiscal year", { dimensions: ["fy", "carrier_origin"], measures: ["intl_pax"], viz: "bar" }),
+      ic("in-carriers", "Busiest carriers", { dimensions: ["carrier"], measures: ["intl_pax"], sort: { by: "intl_pax", dir: "desc" }, limit: 15 }),
+      ik("in-countries", "Busiest countries", { dimensions: ["country"], measures: ["intl_pax"], sort: { by: "intl_pax", dir: "desc" }, limit: 15 }),
+      ip("in-routes", "Busiest international routes", { dimensions: ["route"], measures: ["intl_pax"], sort: { by: "intl_pax", dir: "desc" }, limit: 15 }),
+      ik("in-heat", "Passengers: country × fiscal year (top 12 countries)", { dimensions: ["fy", "country"], measures: ["intl_pax"], top: { dim: "country", measure: "intl_pax", n: 12 }, viz: "heatmap" }, 12),
+      ik("in-freight", "Freight by country (tonnes)", { dimensions: ["country"], measures: ["intl_freight_t"], sort: { by: "intl_freight_t", dir: "desc" }, limit: 12 }),
+      ic("in-tbl", "Carrier table", { dimensions: ["carrier"], measures: ["intl_pax", "intl_freight_t"], sort: { by: "intl_pax", dir: "desc" }, limit: 25, viz: "table" }),
     ],
   },
 ];

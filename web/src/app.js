@@ -12,7 +12,7 @@ const el = (tag, props = {}, ...kids) => {
   e.append(...kids);
   return e;
 };
-const FILTER_DIMS = ["fy", "segment", "airline_type", "airline", "origin", "destination", "route"];
+const FILTER_DIMS = ["fy", "segment", "airline_type", "airline", "carrier_origin", "carrier", "direction", "country", "origin", "destination", "route"];
 
 const S = { catalog: null, db: null, base: "", dashboards: [], current: null, filters: {}, cache: new Map(), tableMode: new Set(), draft: null, draftIdx: null, meta: null };
 
@@ -388,20 +388,25 @@ async function openTable(meta) {
 async function openSources() {
   const src = await (await fetch(`${S.base}/sources.json`)).json();
   const byFy = {};
-  for (const s of src) { const k = s.fy || "calendar-year monthly series"; byFy[k] = (byFy[k] || 0) + 1; }
-  const t = tableFrom(["fiscal_year", "source_files_parsed"], Object.entries(byFy).sort().map(([fy, n]) => ({ fiscal_year: fy, source_files_parsed: n })));
+  const group = (s) => s.fy ? `airline statistics, fiscal-year tables (${s.fy})`
+    : /international\/quaterly/i.test(s.s3_url) ? "international traffic, quarterly tables (airline, country, city pair)"
+    : /city\s*pair/i.test(s.s3_url) ? "domestic city-pair traffic, monthly files" : "airline statistics, operator monthly series (calendar year)";
+  for (const s of src) { const k = group(s); byFy[k] = (byFy[k] || 0) + 1; }
+  const t = tableFrom(["dataset", "source_files_parsed"], Object.entries(byFy).sort().map(([k, n]) => ({ dataset: k, source_files_parsed: n })));
   const sample = src.filter((_, i) => i % Math.max(1, Math.floor(src.length / 8)) === 0).slice(0, 8).map((s) => el("li", {}, el("a", { href: s.s3_url, target: "_blank", rel: "noopener", textContent: s.table_id ? `${s.fy} · ${s.entity} · table ${s.table_id}` : (s.title || s.s3_url) })));
   openModal("Data sources & coverage", el("div", {},
-    el("p", { textContent: `Sources: DGCA India – Air Transport Statistics: monthly traffic and operating statistics by airline (ICAO ATR Form A) and monthly domestic city-pair traffic. ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
+    el("p", { textContent: `Sources: DGCA India – Air Transport Statistics: monthly traffic and operating statistics by airline (ICAO ATR Form A), monthly domestic city-pair traffic, and quarterly international traffic by airline, country and city pair. ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
     t, dataQuality(), el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
-    el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, quarterly international traffic, fleet/personnel/financial tables, non-scheduled operations and PDF-only tables are in the catalog but not yet in the dashboards." })));
+    el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, fleet/personnel/financial tables, non-scheduled operations and PDF-only tables are in the catalog but not yet in the dashboards." })));
 }
 
 function dataQuality() {
   const box = el("div", { id: "dq" });
   box.append(el("h4", { textContent: "Data quality" }));
   for (const c of S.catalog.checks || []) {
-    box.append(el("p", {}, el("b", { textContent: c.description + ": " }), document.createTextNode(`${c.within_tolerance} of ${c.months_compared} months agree within ${(c.tolerance * 100).toFixed(0)}% (median ratio ${c.median_ratio}); ${c.deviations.length} deviate, ${c.unexplained} unexplained.`)));
+    const unit = c.unit || "months";
+    const tol = c.tolerance >= 0.01 ? `${(c.tolerance * 100).toFixed(0)}%` : `${(c.tolerance * 100).toFixed(1)}%`;
+    box.append(el("p", {}, el("b", { textContent: c.description + ": " }), document.createTextNode(`${c.within_tolerance} of ${c.months_compared} ${unit} agree within ${tol} (median ratio ${c.median_ratio}); ${c.deviations.length} deviate, ${c.unexplained} unexplained.`)));
     const notes = [...new Set(c.deviations.filter((d) => d.explained).map((d) => d.note))];
     box.append(...notes.map((n) => el("p", { className: "hint", textContent: "Known issue: " + n })));
   }

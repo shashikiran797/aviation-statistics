@@ -9,6 +9,7 @@ import yaml
 from .. import config
 from ..parse.registry import dataset_for
 from . import checks as checks_mod
+from . import intl as intl_pub
 from . import places
 from . import site as site_pub
 from .names import AGGREGATES, canonical, display, slug
@@ -120,6 +121,12 @@ def build(man: pd.DataFrame) -> dict:
         rd, norm = routes_pack
         rd, route_conflicts = dedupe_routes(rd)
         route_periods = set(rd.period.unique())
+    dom_place_keys = {k for k, _, _ in norm.values()} if routes_pack is not None else set()
+    intl = intl_pub.build(man, dom_place_keys)
+    if intl is not None:                                  # international tables add months (Jan-Mar 2015) and quarter-start months
+        for t in intl["tables"].values():
+            if "period_key" in t.columns:
+                route_periods |= set(pd.to_datetime(t.period_key.astype(str) + "01", format="%Y%m%d").unique())
     per = pd.DataFrame({"period": sorted(set(d.period.unique()) | route_periods)})
     per["fy_start_year"] = per.period.dt.year - (per.period.dt.month < 4).astype(int)
     per["fy"] = per.fy_start_year.astype(str) + "-" + ((per.fy_start_year + 1) % 100).astype(str).str.zfill(2)
@@ -156,6 +163,23 @@ def build(man: pd.DataFrame) -> dict:
         extra_tables = {"fact_route_monthly": fact_route, "dim_place": dim_place, "dim_route": dim_route}
         route_stats = {"route_rows": len(fact_route), "places": len(dim_place), "routes": len(dim_route), "place_warnings": len(near)}
 
+    intl_stats = {}
+    if intl is not None:
+        intl_stats = intl["stats"]
+        extra_tables.update(intl["tables"])
+        dp = extra_tables.get("dim_place")
+        dom_keys = set(dp.place_key) if dp is not None else set()
+        add_p = intl["places"][~intl["places"].place_key.isin(dom_keys)] if intl["places"] is not None else None
+        if dp is not None and add_p is not None:
+            dp = pd.concat([dp, add_p], ignore_index=True)
+        elif add_p is not None:
+            dp = intl["places"]
+        if dp is not None:
+            dp["domain"] = dp.place_key.map(lambda k: "India" if k in dom_keys else "Foreign")
+            extra_tables["dim_place"] = dp.sort_values("place").reset_index(drop=True)
+        dr = extra_tables.get("dim_route")
+        if intl["routes"] is not None:
+            extra_tables["dim_route"] = pd.concat([dr, intl["routes"][~intl["routes"].route_key.isin(set(dr.route_key) if dr is not None else set())]], ignore_index=True).sort_values("route").reset_index(drop=True) if dr is not None else intl["routes"]
     # --- fact
     seg_key = {"domestic": 1, "international": 2}
     fact = pd.DataFrame({
@@ -196,6 +220,9 @@ def build(man: pd.DataFrame) -> dict:
     catalog["checks"] = []
     if "fact_route_monthly" in tables:
         catalog["checks"].append(checks_mod.route_vs_airline(fact, tables["fact_route_monthly"], dim_airline, known))
+    if "fact_intl_citypair_quarterly" in tables:
+        catalog["checks"].append(checks_mod.intl_internal(tables["fact_intl_airline_monthly"], tables["fact_intl_country_quarterly"], tables["fact_intl_citypair_quarterly"], known))
+        catalog["checks"].append(checks_mod.intl_vs_monthly_airline_stats(tables["fact_intl_airline_monthly"], tables["dim_carrier"], tables["fact_intl_citypair_quarterly"], fact, dim_airline, known))
     (out / "catalog.json").write_text(json.dumps(catalog, indent=1))
 
     # --- provenance + conflicts
@@ -212,7 +239,7 @@ def build(man: pd.DataFrame) -> dict:
             shutil.rmtree(old)
     print(f"publish: version {version}: {len(fact)} fact rows, {len(dim_airline)} airlines, "
           f"{len(dim_period)} months; {n_dupes} duplicate rows dropped, {len(conflicts)} conflicting rows logged; "
-          f"site catalog: {site_stats['files']} files, {site_stats['tables']} tables; routes: {route_stats}")
+          f"site catalog: {site_stats['files']} files, {site_stats['tables']} tables; routes: {route_stats}; intl: {intl_stats}")
     return {"version": version, "rows": len(fact)}
 
 

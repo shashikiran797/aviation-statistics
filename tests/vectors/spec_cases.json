@@ -1,5 +1,5 @@
 {
- "catalog_version": "340b0bf498",
+ "catalog_version": "a482254b1c",
  "cases": [
   {
    "name": "kpi_total_pax",
@@ -284,6 +284,145 @@
     "fact": "route_monthly",
     "dimensions": [
      "route"
+    ],
+    "measures": [
+     "pax"
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "intl_top_carriers",
+   "spec": {
+    "fact": "intl_airline_monthly",
+    "dimensions": [
+     "carrier"
+    ],
+    "measures": [
+     "intl_pax"
+    ],
+    "sort": {
+     "by": "intl_pax",
+     "dir": "desc"
+    },
+    "limit": 10
+   },
+   "sql": "SELECT dim_carrier.carrier AS \"carrier\",\n       SUM(f.pax) AS \"intl_pax\"\nFROM fact_intl_airline_monthly AS f\nJOIN dim_carrier ON f.carrier_key = dim_carrier.carrier_key\nGROUP BY dim_carrier.carrier\nORDER BY \"intl_pax\" DESC NULLS LAST, dim_carrier.carrier\nLIMIT 10"
+  },
+  {
+   "name": "intl_direction_monthly",
+   "spec": {
+    "fact": "intl_airline_monthly",
+    "dimensions": [
+     "period",
+     "direction"
+    ],
+    "measures": [
+     "intl_pax",
+     "intl_freight_t"
+    ],
+    "filters": [
+     {
+      "dim": "carrier_origin",
+      "op": "in",
+      "values": [
+       "Foreign"
+      ]
+     }
+    ]
+   },
+   "sql": "SELECT dim_period.period AS \"period\",\n       dim_direction.direction AS \"direction\",\n       SUM(f.pax) AS \"intl_pax\",\n       SUM(f.freight_t) AS \"intl_freight_t\"\nFROM fact_intl_airline_monthly AS f\nJOIN dim_carrier ON f.carrier_key = dim_carrier.carrier_key\nJOIN dim_direction ON f.direction_key = dim_direction.direction_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_carrier.carrier_origin IN ('Foreign')\nGROUP BY dim_period.period, dim_direction.direction\nORDER BY dim_period.period, dim_direction.direction"
+  },
+  {
+   "name": "intl_country_heat",
+   "spec": {
+    "fact": "intl_country_quarterly",
+    "dimensions": [
+     "fy",
+     "country"
+    ],
+    "measures": [
+     "intl_pax"
+    ],
+    "top": {
+     "dim": "country",
+     "measure": "intl_pax",
+     "n": 12
+    }
+   },
+   "sql": "WITH top_n AS (\nSELECT dim_country.country AS v\nFROM fact_intl_country_quarterly AS f\nJOIN dim_country ON f.country_key = dim_country.country_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nGROUP BY dim_country.country\nORDER BY SUM(f.pax) DESC NULLS LAST, v\nLIMIT 12\n)\nSELECT dim_period.fy AS \"fy\",\n       dim_country.country AS \"country\",\n       SUM(f.pax) AS \"intl_pax\"\nFROM fact_intl_country_quarterly AS f\nJOIN dim_country ON f.country_key = dim_country.country_key\nJOIN dim_period ON f.period_key = dim_period.period_key\nWHERE dim_country.country IN (SELECT v FROM top_n)\nGROUP BY dim_period.fy, dim_country.country\nORDER BY dim_period.fy, dim_country.country"
+  },
+  {
+   "name": "intl_foreign_origin_cities",
+   "spec": {
+    "fact": "intl_citypair_quarterly",
+    "dimensions": [
+     "origin_city"
+    ],
+    "measures": [
+     "intl_pax"
+    ],
+    "filters": [
+     {
+      "dim": "origin_domain",
+      "op": "in",
+      "values": [
+       "Foreign"
+      ]
+     },
+     {
+      "dim": "direction",
+      "op": "in",
+      "values": [
+       "To India"
+      ]
+     }
+    ],
+    "sort": {
+     "by": "intl_pax",
+     "dir": "desc"
+    },
+    "limit": 10
+   },
+   "sql": "SELECT dim_origin.city AS \"origin_city\",\n       SUM(f.pax) AS \"intl_pax\"\nFROM fact_intl_citypair_quarterly AS f\nJOIN dim_place AS dim_origin ON f.origin_key = dim_origin.place_key\nJOIN dim_direction ON f.direction_key = dim_direction.direction_key\nWHERE dim_origin.domain IN ('Foreign')\n  AND dim_direction.direction IN ('To India')\nGROUP BY dim_origin.city\nORDER BY \"intl_pax\" DESC NULLS LAST, dim_origin.city\nLIMIT 10"
+  },
+  {
+   "name": "intl_routes_top",
+   "spec": {
+    "fact": "intl_citypair_quarterly",
+    "dimensions": [
+     "route"
+    ],
+    "measures": [
+     "intl_pax"
+    ],
+    "sort": {
+     "by": "intl_pax",
+     "dir": "desc"
+    },
+    "limit": 15
+   },
+   "sql": "SELECT dim_route.route AS \"route\",\n       SUM(f.pax) AS \"intl_pax\"\nFROM fact_intl_citypair_quarterly AS f\nJOIN dim_route ON f.route_key = dim_route.route_key\nGROUP BY dim_route.route\nORDER BY \"intl_pax\" DESC NULLS LAST, dim_route.route\nLIMIT 15"
+  },
+  {
+   "name": "err_carrier_dim_on_country_fact",
+   "spec": {
+    "fact": "intl_country_quarterly",
+    "dimensions": [
+     "carrier"
+    ],
+    "measures": [
+     "intl_pax"
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "err_domestic_measure_on_intl_fact",
+   "spec": {
+    "fact": "intl_airline_monthly",
+    "dimensions": [
+     "carrier"
     ],
     "measures": [
      "pax"

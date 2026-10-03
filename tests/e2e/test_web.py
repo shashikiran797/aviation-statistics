@@ -52,6 +52,18 @@ def browser(server):
         b.close()
 
 
+def boot(pg, url=URL):
+    """Open the app. The libraries come from a CDN, so one stalled load is retried once (a user would simply reload)."""
+    for attempt in (1, 2):
+        pg.goto(url)
+        try:
+            pg.wait_for_selector("body[data-ready='1']", timeout=45000)
+            return
+        except Exception:
+            if attempt == 2 or "Failed to start" in pg.inner_text("#data-meta"):
+                raise                                                   # a real startup failure is never retried away
+
+
 @pytest.fixture()
 def page(browser):
     ctx = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
@@ -59,8 +71,7 @@ def page(browser):
     pg.errors = []
     pg.on("pageerror", lambda e: pg.errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and pg.errors.append(m.text))
-    pg.goto(URL)
-    pg.wait_for_selector("body[data-ready='1']", timeout=90000)
+    boot(pg)
     yield pg
     assert not pg.errors, pg.errors
     ctx.close()
@@ -274,8 +285,10 @@ def test_sources_modal(page):
     page.click("#menu >> text=Data sources")
     page.wait_for_selector("#modal table.t")
     assert "Excel files parsed" in page.inner_text("#modal") and "city-pair" in page.inner_text("#modal")
-    assert page.locator("#modal table.t tbody tr").count() >= 6
-    assert "calendar-year monthly series" in page.inner_text("#modal")
+    txt = page.inner_text("#modal")
+    assert page.locator("#modal table.t tbody tr").count() >= 8                   # 5 fiscal years + operator series + city pairs + international
+    for label in ("operator monthly series", "domestic city-pair traffic", "international traffic, quarterly tables"):
+        assert label in txt, label
     shot(page, "08-sources")
 
 
@@ -629,4 +642,147 @@ def test_routes_dashboard_dark_and_mobile(page, browser):
     pg.wait_for_function("document.querySelectorAll('.card').length === 7 && !document.querySelector('.card-body.loading')")
     assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
     pg.screenshot(path=str(SHOTS / "23-routes-mobile.png"), full_page=True)
+    ctx.close()
+
+
+# ================================================================ international (quarterly) datasets
+@pytest.fixture(scope="module")
+def intl():
+    d = next(p for p in (ROOT / "web/data").iterdir() if p.is_dir())
+    R = lambda t: pd.read_parquet(d / f"{t}.parquet")
+    a = R("fact_intl_airline_monthly").merge(R("dim_carrier"), on="carrier_key").merge(R("dim_direction"), on="direction_key").merge(R("dim_period"), on="period_key")
+    c = R("fact_intl_country_quarterly").merge(R("dim_country"), on="country_key").merge(R("dim_direction"), on="direction_key").merge(R("dim_period"), on="period_key")
+    pl = R("dim_place").set_index("place_key")
+    p = R("fact_intl_citypair_quarterly").merge(R("dim_route"), on="route_key").merge(R("dim_period"), on="period_key")
+    p["origin"] = p.origin_key.map(pl.place)
+    return {"air": a, "country": c, "pairs": p}
+
+
+def goto_intl(pg):
+    pg.select_option("#dash-select", label="★ International traffic")
+    pg.wait_for_function("document.querySelectorAll('.card').length === 9 && !document.querySelector('.card-body.loading')")
+
+
+def test_international_dashboard_renders_and_kpis_match_pandas(page, intl):
+    goto_intl(page)
+    a = intl["air"]
+    assert not page.locator(".card .error").count()
+    assert num(kpi(page, "International passengers")) == pytest.approx(a.pax.sum(), rel=1e-9)
+    assert num(kpi(page, "International freight")) == pytest.approx(a.freight_t.sum(), rel=1e-6)
+    top = a.groupby("carrier").pax.sum().sort_values(ascending=False).head(15)
+    labels = page.locator("#w-in-carriers svg [aria-label='y-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert labels == list(top.index)
+    top = intl["country"].groupby("country").pax.sum().sort_values(ascending=False).head(15)
+    labels = page.locator("#w-in-countries svg [aria-label='y-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert labels == list(top.index) and labels[0] == "United Arab Emirates"
+    top = intl["pairs"].groupby("route").pax.sum().sort_values(ascending=False).head(15)
+    labels = page.locator("#w-in-routes svg [aria-label='y-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert labels == list(top.index)
+    assert page.locator("#w-in-heat g[aria-label='cell'] > *").count() >= 100
+    assert "individual airlines" not in page.inner_text("#w-in-carriers")
+    shot(page, "24-international-dashboard")
+
+
+def test_international_filter_bar_and_filters_match_pandas(page, intl):
+    goto_intl(page)
+    for d in ("fy", "carrier_origin", "carrier", "direction", "country", "origin", "destination", "route"):
+        assert page.locator(f"#f-{d}").count() == 1, d
+    assert page.locator("#f-airline").count() == 0 and page.locator("#f-segment").count() == 0
+    a = intl["air"]
+    page.click("#f-direction")
+    page.locator(".pop label", has_text="From India").click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-direction b').textContent.includes('From India')")
+    assert num(kpi(page, "International passengers")) == pytest.approx(a[a.direction == "From India"].pax.sum(), rel=1e-9)
+    page.click("#f-carrier")
+    page.locator(".pop input[type=search]").fill("emirates")
+    page.locator(".pop label:not([hidden])").first.click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-carrier b').textContent.includes('Emirates')")
+    x = a[(a.direction == "From India") & (a.carrier == "Emirates")]
+    assert num(kpi(page, "International passengers")) == pytest.approx(x.pax.sum(), rel=1e-9)
+    shot(page, "25-international-filtered")
+
+
+def test_fiscal_year_filter_scopes_all_three_international_facts(page, intl):
+    goto_intl(page)
+    page.click("#f-fy")
+    page.locator(".pop label", has_text="2018-19").click()
+    page.locator(".pop button", has_text="Done").click()
+    page.wait_for_function("!document.querySelector('.card-body.loading') && document.querySelector('#f-fy b').textContent.includes('2018-19')")
+    a = intl["air"]
+    assert num(kpi(page, "International passengers")) == pytest.approx(a[a.fy == "2018-19"].pax.sum(), rel=1e-9)
+    c = intl["country"]
+    top = c[c.fy == "2018-19"].groupby("country").pax.sum().sort_values(ascending=False).head(15)
+    labels = page.locator("#w-in-countries svg [aria-label='y-axis tick label'] text").evaluate_all("els => els.map(e => e.textContent)")
+    assert labels == list(top.index)                                       # the country fact (quarterly) obeys the same fiscal-year filter
+
+
+def test_quarterly_facts_do_not_offer_monthly_fields(page):
+    page.click("#btn-new")
+    page.select_option("#b-fact", label="International traffic by country")
+    page.wait_for_function("document.querySelector('#s-measures .chip')")
+    dims = page.locator("#b-dims .chip").all_inner_texts()
+    assert "Country" in dims and "Direction" in dims and "Fiscal quarter" in dims
+    assert "Month" not in dims and "Month (timeline)" not in dims          # quarterly source: no fake monthly resolution
+    assert page.locator("#s-measures .chip", has_text="International passengers").count() == 1
+    page.select_option("#b-fact", label="International traffic by carrier")
+    page.wait_for_function("document.querySelector('#s-measures .chip')")
+    dims = page.locator("#b-dims .chip").all_inner_texts()
+    assert "Month (timeline)" in dims and "Carrier type" in dims
+
+
+def test_builder_international_routes_use_domain_and_direction(page):
+    page.click("#btn-new")
+    page.select_option("#b-fact", label="International routes (city pairs)")
+    page.wait_for_function("document.querySelector('#s-measures .chip')")
+    page.locator("#b-dims .chip", has_text=re.compile(r"^Origin region$")).click()
+    page.locator("#b-dims .chip", has_text=re.compile(r"^Direction$")).click()           # exact: "Route (both directions)" also contains the word
+    page.wait_for_function("document.querySelector('#b-sql').textContent.includes('dim_direction')")
+    sql = page.text_content("#b-sql")
+    assert "JOIN dim_place AS dim_origin" in sql and "dim_origin.domain" in sql and "JOIN dim_direction" in sql
+    page.wait_for_selector("#b-preview svg, #b-preview table")
+    rows = page.evaluate("async (s) => (await window.__dgca.query(s)).rows.map(r => [r.origin_domain, r.direction])", sql)
+    assert ["Foreign", "To India"] in rows and ["India", "From India"] in rows and ["Foreign", "Outside India"] in rows
+    shot(page, "26-builder-international")
+
+
+def test_ai_prompt_covers_all_facts_and_routes_international_questions(page):
+    spec = {"fact": "intl_country_quarterly", "dimensions": ["country"], "measures": ["intl_pax"], "filters": [], "top": None,
+            "sort": {"by": "intl_pax", "dir": "desc"}, "limit": 10, "viz": "bar"}
+    page.evaluate("s => { window.__seen = null; window.__DGCA_AI_MOCK = async (sys) => { window.__seen = sys; return JSON.stringify(s); }; }", spec)
+    page.click("#btn-ai"); page.fill("#ai-q", "which countries have the most passengers"); page.click("#ai-ask")
+    page.wait_for_selector("#builder[open]")
+    page.wait_for_function("document.querySelector('#b-sql').textContent.includes('dim_country')")
+    seen = page.evaluate("window.__seen")
+    for fact in ("airline_monthly", "route_monthly", "intl_airline_monthly", "intl_country_quarterly", "intl_citypair_quarterly"):
+        assert f'Fact "{fact}"' in seen, fact
+    assert "Emirates vs Qatar Airways" in seen and "Which countries have the most passengers" in seen
+
+
+def test_data_quality_lists_international_checks_and_issues(page):
+    page.click("#btn-menu")
+    page.click("#menu >> text=Data sources")
+    page.wait_for_selector("#dq")
+    txt = page.inner_text("#dq")
+    assert "91 of 91 table pairs agree" in txt and "0 unexplained" in txt
+    assert "flights entirely outside India" in txt or "outside India" in txt
+    assert "Q1 2026 city-pair" in txt and "Vancouver-Toronto" in txt and "footnote asterisks" in txt
+    assert "Air India Express" in txt and "May 2024" in txt
+    shot(page, "27-data-quality-international")
+
+
+def test_international_dark_and_mobile(page, browser):
+    goto_intl(page)
+    page.click("#btn-theme")
+    page.wait_for_function("!document.querySelector('.card-body.loading')")
+    shot(page, "28-international-dark", full_page=True)
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2)
+    pg = ctx.new_page()
+    pg.goto(URL)
+    pg.wait_for_selector("body[data-ready='1']", timeout=90000)
+    pg.select_option("#dash-select", label="★ International traffic")
+    pg.wait_for_function("document.querySelectorAll('.card').length === 9 && !document.querySelector('.card-body.loading')")
+    assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+    pg.screenshot(path=str(SHOTS / "29-international-mobile.png"), full_page=True)
     ctx.close()

@@ -39,7 +39,7 @@ def report(df: pd.DataFrame) -> int:
     if latest.exists():
         cat = json.loads((config.SITE_DATA / json.loads(latest.read_text())["version"] / "catalog.json").read_text())
         for c in cat.get("checks", []):
-            print(f"check {c['name']}: {c['within_tolerance']}/{c['months_compared']} months within {c['tolerance']:.0%}, median ratio {c['median_ratio']}, "
+            print(f"check {c['name']}: {c['within_tolerance']}/{c['months_compared']} {c.get('unit', 'months')} within {c['tolerance']:.0%}, median ratio {c['median_ratio']}, "
                   f"{len(c['deviations'])} deviations ({c['unexplained']} unexplained)")
             for d in c["deviations"]:
                 if not d["explained"]:

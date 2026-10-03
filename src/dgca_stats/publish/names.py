@@ -19,6 +19,11 @@ ALIASES = {  # keyed on the upper-cased, letters+digits-only form of the name
     "BLUEDART": "BLUE DART", "BLUEDARTCLICK": "BLUE DART", "STARINDIA": "STAR AIR", "INDIAONE": "INDIA ONE AIR", "INDIAONEAIR": "INDIA ONE AIR",
     "FLY91": "FLY 91", "AIRINDIAEXPRESSLTD": "AIR INDIA EXPRESS", "GOAIR": "GO AIR", "AKASA": "AKASA AIR", "ALLIANCE": "ALLIANCE AIR",
     "QUICKJETCARGO": "QUIKJET CARGO", "TRUJET": "TRUJET", "DECCANAIR": "AIR DECCAN", "AIRDECCAN": "AIR DECCAN",
+    "BLUEDARTAVIATION": "BLUE DART", "VISTARAAIRLINES": "VISTARA", "AIRASIA": "AIR ASIA",
+    # international carriers: typos and renamed brands across 46 quarters
+    "BUDHHAAIR": "BUDDHA AIR", "QATARAIRWATYS": "QATAR AIRWAYS", "RWANDAAIR": "RWANDAIR", "SRILNKANAIRWAYS": "SRILANKAN AIRWAYS",
+    "UGANDAAIRLNES": "UGANDA AIRLINES", "SOUTHAAFRICANAIRLINES": "SOUTH AFRICAN AIRWAYS", "THOMASCOOKAIRLINESUK": "THOMAS COOK AIRLINES",
+    "SCOOTPTELTD": "SCOOT TIGER AIR", "EMIRATESAIRLINE": "EMIRATES", "DELTAAIRLINES": "DELTA AIR LINES",
     "AIXCONNECT": "AIR ASIA", "AIRASIAINDIA": "AIR ASIA",   # AirAsia India was renamed AIX Connect (2023-24): one continuing series
 }
 
@@ -29,8 +34,21 @@ def canonical(entity: str) -> str:
     return ALIASES.get(re.sub(r"[^A-Z0-9]", "", e), e)
 
 
+ACRONYMS = {"ITA", "KLM", "LOT", "SCAT", "KAM", "UK", "LLC", "LTD", "SA", "UAE", "USA", "US", "SPA", "PTE", "DC"}
+DISPLAY.update({"EMIRATES": "Emirates", "SCOOT TIGER AIR": "Scoot (incl. Tigerair)", "RWANDAIR": "RwandAir", "SRILANKAN AIRWAYS": "SriLankan Airlines",
+                "US BANGLA AIRLINES": "US-Bangla Airlines", "AIR ASIA BERHAD": "AirAsia (Malaysia)", "AIR ASIA X": "AirAsia X", "UNITED PARCEL SERVICES": "UPS",
+                "SOUTH AFRICAN AIRWAYS": "South African Airways", "DELTA AIR LINES": "Delta Air Lines", "EL-AL-ISRAEL": "El Al", "PAK INTERNATIONAL": "Pakistan International",
+                "SWISS AIR": "Swiss", "FEDERAL EXPRESS": "FedEx", "LOT POLISH": "LOT Polish Airlines", "CHINA AIRLINES LTD": "China Airlines"})
+
+
+def smart_title(name: str) -> str:
+    if not name.isupper():
+        return name                                   # already mixed case: published that way, keep
+    return " ".join(w if w in ACRONYMS else w.capitalize() for w in name.replace("-", " - ").split()).replace(" - ", "-")
+
+
 def display(key: str) -> str:
-    return DISPLAY.get(key, key.title())
+    return DISPLAY.get(key) or smart_title(key)
 
 
 def slug(key: str) -> str:

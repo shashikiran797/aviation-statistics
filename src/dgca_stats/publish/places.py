@@ -35,6 +35,20 @@ CURATED = {
     "HOLLONGIITANAGAR": ("Itanagar", "Itanagar"), "ZERO": ("Ziro", "Ziro"), "PURNIA": ("Purnea", "Purnea"),
     "RAJKOTINTERNATIONALAIRPORT": ("Hirasar (Rajkot)", "Rajkot"),
     "HIRASARRAJKOT": ("Hirasar (Rajkot)", "Rajkot"), "RAJKOT": ("Rajkot", "Rajkot"),
+    # foreign cities (international city-pair tables): concatenated spellings, typos, and several airports per city
+    "ABUDHABI": ("Abu Dhabi", "Abu Dhabi"), "KUALALUMPUR": ("Kuala Lumpur", "Kuala Lumpur"), "HONGKONG": ("Hong Kong", "Hong Kong"),
+    "TELAVIV": ("Tel Aviv", "Tel Aviv"), "BRUSELLS": ("Brussels", "Brussels"), "HELNSKI": ("Helsinki", "Helsinki"), "NOTTIMGHAM": ("Nottingham", "Nottingham"),
+    "MARUITIUS": ("Port Louis", "Port Louis"), "PORTLOUIS": ("Port Louis", "Port Louis"), "PORTLOUISMAURITIUS": ("Port Louis", "Port Louis"),
+    "STDENISREUNION": ("Saint-Denis (Reunion)", "Saint-Denis"), "REUNION": ("Saint-Denis (Reunion)", "Saint-Denis"),
+    "DONMUEANG": ("Bangkok (Don Mueang)", "Bangkok"), "DONMUEANGBANGKOK": ("Bangkok (Don Mueang)", "Bangkok"), "BANGKOK": ("Bangkok", "Bangkok"),
+    "NEWARK": ("Newark (New York)", "New York"), "NEWARKNEWYORK": ("Newark (New York)", "New York"), "NEWYORK": ("New York", "New York"),
+    "MALPENSA": ("Milan (Malpensa)", "Milan"), "MILANBERGAMO": ("Milan (Bergamo)", "Milan"), "MILAN": ("Milan", "Milan"),
+    "LHR": ("London (Heathrow)", "London"), "STANSTED": ("London (Stansted)", "London"), "LONDON": ("London", "London"),
+    "MUENCHEN": ("Munich", "Munich"), "MUNICH": ("Munich", "Munich"), "KIEV": ("Kyiv", "Kyiv"), "HANGCHOW": ("Hangzhou", "Hangzhou"),
+    "NINGOLISHE": ("Ningbo", "Ningbo"), "PEKING": ("Beijing", "Beijing"), "RANGOON": ("Yangon", "Yangon"), "TAIPAE": ("Taipei", "Taipei"),
+    "RASALKHAMA": ("Ras Al Khaimah", "Ras Al Khaimah"), "RASALKHAIMAH": ("Ras Al Khaimah", "Ras Al Khaimah"),
+    "SHYAMKENT": ("Shymkent", "Shymkent"), "ALMEIRIA": ("Almeria", "Almeria"), "NAJF": ("Najaf", "Najaf"),
+    "BRANDENBURGBERLIN": ("Berlin (Brandenburg)", "Berlin"), "WASHINGTONDC": ("Washington DC", "Washington DC"), "DUSSELDORF": ("Dusseldorf", "Dusseldorf"),
     "HINDONAIRPORT": ("Hindon (Ghaziabad)", "Delhi NCR (Hindon)"), "GHAZIABAD": ("Hindon (Ghaziabad)", "Delhi NCR (Hindon)"),
 }
 

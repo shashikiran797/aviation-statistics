@@ -7,8 +7,54 @@ import pandas as pd
 from .. import config
 import re
 
-from . import city_pair, monthly, monthly_cal
+from . import city_pair, intl_quarterly, monthly, monthly_cal
 from .registry import dataset_for, operator_from_title
+
+
+def _sibling(df, row, table: int):
+    """Manifest row of another table of the same quarter (same file stem, different _N suffix), if downloaded."""
+    stem = re.sub(r"_[1-4]\.xlsx$", f"_{table}.xlsx", str(row["portal_path"]), flags=re.I)
+    hit = df[(df["portal_path"] == stem) & (df["status"] == "downloaded")]
+    return None if hit.empty else hit.iloc[0]
+
+
+def _parse_intl(df, i, row, ds, path, stats):
+    kind = {1: "airline", 2: "airline_month", 3: "country", 4: "citypair"}[ds["table"]]
+    year, q = ds["year"], ds["quarter"]
+    if kind == "citypair":
+        p = intl_quarterly.citypair(path)
+        ref = None
+        for t in (1, 3):                                   # independent table of the same quarter to referee the footers
+            sib = _sibling(df, row, t)
+            if sib is not None:
+                ref = intl_quarterly.read_named(sib["raw_path"] if str(sib["raw_path"]).startswith("/") else config.ROOT / sib["raw_path"],
+                                                "airline" if t == 1 else "country")["totals"].get("all")
+                if ref:
+                    break
+        problems = intl_quarterly.validate_citypair(p, ref)
+        tidy = intl_quarterly.citypair_long(p, year, q)
+        sub = "intl_citypair_quarterly"
+    else:
+        p = intl_quarterly.read_named(path, kind)
+        problems = intl_quarterly.validate_named(p)
+        tidy = intl_quarterly.named_long(p, year, q)
+        sub = {"airline": "intl_airline_quarterly", "airline_month": "intl_airline_monthly", "country": "intl_country_quarterly"}[kind]
+    tq = intl_quarterly.title_quarter(p["title"]) if kind != "citypair" else None
+    if tq and tq != (year, q):
+        problems.append(f"title says {tq} but file name says {(year, q)}")
+    hard = [x for x in problems if not x.startswith("warn:")]
+    if hard:
+        raise monthly.LayoutError("; ".join(hard))
+    notes = [x for x in problems if x.startswith("warn:") and "no SUB TOTAL" not in x and "no GRAND TOTAL" not in x]
+    if p.get("footnoted"):
+        notes.append(f"warn: {p['footnoted']} cells carry a footnote asterisk (kept)")
+    tidy = tidy.assign(provisional="(P)" in p.get("title", "").upper() if kind != "citypair" else True, source_url=row["s3_url"], file_sha256=row["content_sha256"], parsed_by="code")
+    d2 = config.INTERIM / sub
+    d2.mkdir(parents=True, exist_ok=True)
+    tidy.to_parquet(d2 / f"{row['content_sha256']}.parquet", index=False)
+    df.at[i, "parse_status"], df.at[i, "parse_rows"], df.at[i, "error"] = "ok", len(tidy), ("; ".join(notes)[:300] if notes else None)
+    stats["ok"] += 1
+    stats["warnings"] += len(notes)
 
 
 def run(df: pd.DataFrame, only_pending=True, log=print) -> dict:
@@ -31,6 +77,9 @@ def run(df: pd.DataFrame, only_pending=True, log=print) -> dict:
             continue
         path = config.ROOT / row["raw_path"] if not str(row["raw_path"]).startswith("/") else row["raw_path"]
         try:
+            if ds["dataset"] == "intl_quarterly":
+                _parse_intl(df, i, row, ds, path, stats)
+                continue
             if ds["dataset"] == "city_pair_monthly":
                 fn = str(row["portal_path"]).rsplit("/", 1)[-1]
                 parsed = city_pair.read(path, fn)
