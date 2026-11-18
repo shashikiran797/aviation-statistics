@@ -19,11 +19,13 @@ const S = { catalog: null, db: null, base: "", dashboards: [], current: null, fi
 
 // ---------- boot
 async function boot() {
+  window.splash?.stage(1);
   const th = getTheme();
   if (th) document.documentElement.dataset.theme = th;
   const latest = await (await fetch("data/latest.json")).json();
   S.base = `data/${latest.version}`;
   S.catalog = await (await fetch(`${S.base}/catalog.json`)).json();
+  window.splash?.stage(2);
   $("#data-meta").textContent = "Opening local query engine…";
   S.db = await openDb(S.base, Object.keys(S.catalog.tables));
   const n = (await S.db.query("SELECT count(*) AS n, min(period) AS a, max(period) AS b FROM fact_airline_monthly JOIN dim_period USING(period_key)")).rows[0];
@@ -31,6 +33,7 @@ async function boot() {
   const mon = (v) => new Date(v).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
   S.meta = { rows: n.n, from: fys[0], to: fys.at(-1), version: latest.version, built: latest.built_at, first: mon(n.a), last: mon(n.b) };
   $("#data-meta").textContent = `DGCA air traffic statistics · ${S.meta.first} – ${S.meta.last} (latest months provisional) · ${n.n.toLocaleString()} rows · queried locally in your browser`;
+  window.splash?.stage(3);
   S.dashboards = [...STARTERS, ...loadSaved()];
   const shared = decodeShare(location.hash);
   if (shared) { S.dashboards.push(shared.dash); S.filters = shared.filters; S.current = shared.dash.id; }
@@ -40,6 +43,7 @@ async function boot() {
   renderFilters();
   renderDashSelect();
   await renderDashboard();
+  window.splash?.done();
   await initCatalog({ db: S.db, base: S.base, catalog: S.catalog, openTable });
   window.__dgca = { query: (sql) => S.db.query(sql), state: S, libs: libSource };  // test/debug hook
   document.body.dataset.ready = "1";
@@ -522,4 +526,4 @@ function wireChrome() {
   let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => S.db && renderDashboard(), 250); });
 }
 
-boot().catch((e) => { $("#data-meta").textContent = "Failed to start: " + e.message; $("#status").textContent = String(e.stack || e); console.error(e); });
+boot().catch((e) => { window.splash?.fail(e.message); $("#data-meta").textContent = "Failed to start: " + e.message; $("#status").textContent = String(e.stack || e); console.error(e); });

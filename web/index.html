@@ -13,8 +13,91 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Aviation Stats">
 <link rel="stylesheet" href="styles.css">
+<style>
+#splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:var(--bg,#f5f5f3);color:var(--text,#0b0b0b);transition:opacity .45s ease,visibility .45s;text-align:center;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#splash.done{opacity:0;visibility:hidden;pointer-events:none}
+#splash h2{margin:0;font-size:20px;letter-spacing:.2px}
+#splash .sp-sub{margin:-10px 0 0;color:var(--text-3,#78776f);font-size:13px}
+#splash svg{width:min(420px,86vw);height:auto;overflow:visible}
+#splash .sp-arc{fill:none;stroke:var(--accent,#2a78d6);stroke-width:2;stroke-dasharray:3 7;stroke-linecap:round;opacity:.55;animation:sp-dash 1.2s linear infinite}
+#splash .sp-dot{fill:var(--accent,#2a78d6)}
+#splash .sp-ring{fill:none;stroke:var(--accent,#2a78d6);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:sp-ping 1.8s ease-out infinite}
+#splash .sp-ring.b{animation-delay:.9s}
+#splash .sp-bar{fill:var(--accent,#2a78d6);opacity:.35;transform-box:fill-box;transform-origin:bottom;animation:sp-bar 1.6s ease-in-out infinite}
+#splash .sp-plane{offset-path:path("M 40 120 Q 210 -10 380 100");offset-rotate:auto;animation:sp-fly 3.2s cubic-bezier(.45,.05,.55,.95) infinite}
+#splash .sp-plane polygon{fill:var(--accent,#2a78d6)}
+#splash .sp-plane polygon+polygon{fill:var(--text-3,#78776f);opacity:.55}
+#splash ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;text-align:left;min-width:260px}
+#splash li{display:flex;gap:10px;align-items:center;color:var(--text-3,#78776f);transition:color .2s}
+#splash li i{width:16px;height:16px;border-radius:50%;border:2px solid var(--line,#e2e1dc);box-sizing:border-box;flex:none;display:grid;place-items:center;font-size:10px;font-style:normal;color:#fff}
+#splash li.on{color:var(--text,#0b0b0b)}
+#splash li.on i{border-color:var(--accent,#2a78d6);border-top-color:transparent;animation:sp-spin .8s linear infinite}
+#splash li.ok{color:var(--text-2,#52514e)}
+#splash li.ok i{background:var(--accent,#2a78d6);border-color:var(--accent,#2a78d6);animation:none}
+#splash li.ok i::after{content:"\2713"}
+#splash .sp-track{width:min(320px,80vw);height:6px;border-radius:3px;background:var(--surface-2,#f0efec);overflow:hidden}
+#splash .sp-fill{height:100%;width:2%;background:var(--accent,#2a78d6);border-radius:3px;transition:width .5s ease}
+#splash .sp-tip{min-height:40px;max-width:420px;color:var(--text-2,#52514e);font-size:13px;transition:opacity .35s}
+#splash .sp-note{color:var(--text-3,#78776f);font-size:12px;max-width:420px}
+#splash.err .sp-fill{background:#d03b3b}
+@keyframes sp-fly{0%{offset-distance:0;opacity:0}8%{opacity:1}92%{opacity:1}100%{offset-distance:100%;opacity:0}}
+@keyframes sp-dash{to{stroke-dashoffset:-20}}
+@keyframes sp-ping{0%{transform:scale(.4);opacity:.9}100%{transform:scale(2.4);opacity:0}}
+@keyframes sp-bar{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+@keyframes sp-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#splash *{animation:none!important}#splash .sp-plane{offset-distance:50%}}
+</style>
+
 </head>
 <body>
+<div id="splash" role="status" aria-live="polite">
+  <svg viewBox="0 0 420 170" aria-hidden="true">
+    <g transform="translate(0 20)">
+      <path class="sp-arc" d="M 40 120 Q 210 -10 380 100"/>
+      <circle class="sp-ring" cx="40" cy="120" r="8"/><circle class="sp-ring b" cx="380" cy="100" r="8"/>
+      <circle class="sp-dot" cx="40" cy="120" r="5"/><circle class="sp-dot" cx="380" cy="100" r="5"/>
+      <g class="sp-plane"><polygon points="16,0 -12,-10 -5,0 -12,10"/><polygon points="-5,0 16,0 -12,10"/></g>
+    </g>
+    <g transform="translate(150 140)">
+      <rect class="sp-bar" x="0" y="-26" width="16" height="26" rx="3" style="animation-delay:0s"/>
+      <rect class="sp-bar" x="30" y="-26" width="16" height="26" rx="3" style="animation-delay:.2s"/>
+      <rect class="sp-bar" x="60" y="-26" width="16" height="26" rx="3" style="animation-delay:.4s"/>
+      <rect class="sp-bar" x="90" y="-26" width="16" height="26" rx="3" style="animation-delay:.6s"/>
+    </g>
+  </svg>
+  <h2>India aviation statistics</h2>
+  <p class="sp-sub" id="sp-sub">Preparing for take-off…</p>
+  <ol id="sp-steps">
+    <li class="on"><i></i>Downloading query engine and charts</li>
+    <li><i></i>Reading the data catalog</li>
+    <li><i></i>Starting the in-browser database</li>
+    <li><i></i>Drawing your dashboard</li>
+  </ol>
+  <div class="sp-track"><div class="sp-fill" id="sp-fill"></div></div>
+  <div class="sp-tip" id="sp-tip"></div>
+  <div class="sp-note">First visit downloads the DuckDB engine (~30 MB). It is cached afterwards, so the next visit starts much faster.</div>
+</div>
+<script>
+(function(){
+  var el=document.getElementById("splash"),steps=[].slice.call(document.querySelectorAll("#sp-steps li")),fill=document.getElementById("sp-fill"),tip=document.getElementById("sp-tip"),sub=document.getElementById("sp-sub");
+  var facts=["Every chart you see is computed on your device, not on a server.","Fiscal years run April to March, so FY2024-25 ends in March 2025.","International flights were suspended Mar 2020 to Mar 2022, so those months show as real gaps.","Passenger load factor is recomputed from sums, never averaged across months.","Route traffic covers over 1,600 domestic city pairs.","Click a bar or legend entry to cross-filter every other chart.","Press the SQL button on any widget to see exactly what produced it."];
+  var i=Math.floor(Math.random()*facts.length),pct=2,cur=0,t0=Date.now(),finished=false;
+  function showTip(){tip.style.opacity=0;setTimeout(function(){tip.textContent="Did you know? "+facts[i++%facts.length];tip.style.opacity=1},300)}
+  showTip();var tipT=setInterval(showTip,4500);
+  function set(p){pct=Math.max(pct,Math.min(p,100));fill.style.width=pct+"%"}
+  var bounds=[8,30,55,80];
+  var creep=setInterval(function(){if(finished)return;var cap=bounds[Math.min(cur,3)]+ (cur<3?14:10);set(pct+(cap-pct)*0.06)},300);
+  var msgs=["Preparing for take-off…","Climbing to cruise altitude…","Cleared for approach…","Final checks…"];
+  window.splash={
+    stage:function(n){for(var k=0;k<steps.length;k++)steps[k].className=k<n?"ok":(k===n?"on":"");cur=n;set(bounds[Math.min(n,3)]);sub.textContent=msgs[Math.min(n,3)]},
+    done:function(){finished=true;clearInterval(creep);clearInterval(tipT);steps.forEach(function(s){s.className="ok"});set(100);sub.textContent="Welcome aboard";if(navigator.webdriver){el.remove();return}var wait=Math.max(0,500-(Date.now()-t0));setTimeout(function(){el.classList.add("done");setTimeout(function(){el.remove()},600)},wait+250)},
+    fail:function(m){finished=true;clearInterval(creep);clearInterval(tipT);el.classList.add("err");sub.textContent="Could not start: "+m;tip.textContent="Check your connection and reload the page. Details are in the browser console."}
+  };
+  addEventListener("unhandledrejection",function(e){if(!finished)window.splash.fail(String(e.reason&&e.reason.message||e.reason))});
+  addEventListener("error",function(e){if(!finished&&e.message)window.splash.fail(e.message)});
+})();
+</script>
+
 <header class="topbar">
   <div class="brand"><span class="brand-mark" aria-hidden="true">✈</span><div><h1>India aviation statistics</h1><p id="data-meta">Loading data…</p></div></div>
   <nav class="views" aria-label="Views"><button id="v-dash" class="on">Dashboards</button><button id="v-cat">Data catalog</button></nav>
