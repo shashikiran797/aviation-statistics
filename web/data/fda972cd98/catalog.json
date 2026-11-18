@@ -5217,6 +5217,74 @@
   "files": 13846,
   "tables": 1111
  },
+ "coverage": {
+  "last_crawled": "2026-11-18T18:21:34Z",
+  "source_files_parsed": 672,
+  "newest_source_modified": "2026-11-17",
+  "datasets": [
+   {
+    "id": "airline_monthly",
+    "label": "Airline monthly traffic",
+    "grain": "airline x fiscal month x segment (domestic | international)",
+    "rows": 3846,
+    "first": "Apr 2014",
+    "latest": "Oct 2026",
+    "latest_key": 202610,
+    "latest_provisional": true,
+    "granularity": "monthly"
+   },
+   {
+    "id": "route_monthly",
+    "label": "Domestic routes (city pairs)",
+    "grain": "directed city pair x month (scheduled domestic services)",
+    "rows": 133079,
+    "first": "Apr 2015",
+    "latest": "Aug 2026",
+    "latest_key": 202608,
+    "latest_provisional": true,
+    "granularity": "monthly"
+   },
+   {
+    "id": "intl_airline_monthly",
+    "label": "International traffic by carrier",
+    "grain": "carrier x month x direction (scheduled international services)",
+    "rows": 22308,
+    "first": "Jan 2015",
+    "latest": "Jun 2026",
+    "latest_key": 202606,
+    "latest_provisional": true,
+    "granularity": "monthly"
+   },
+   {
+    "id": "intl_country_quarterly",
+    "label": "International traffic by country",
+    "grain": "country x quarter x direction (scheduled international services)",
+    "rows": 5088,
+    "first": "Q1 2015",
+    "latest": "Q2 2026",
+    "latest_key": 202604,
+    "latest_provisional": true,
+    "granularity": "quarterly"
+   },
+   {
+    "id": "intl_citypair_quarterly",
+    "label": "International routes (city pairs)",
+    "grain": "directed city pair x quarter x direction (scheduled international services)",
+    "rows": 31444,
+    "first": "Q1 2015",
+    "latest": "Q2 2026",
+    "latest_key": 202604,
+    "latest_provisional": true,
+    "granularity": "quarterly"
+   }
+  ],
+  "portal": {
+   "files_not_in_dashboards": 13672,
+   "files_total": 13846,
+   "files": 13846,
+   "tables": 1111
+  }
+ },
  "checks": [
   {
    "name": "route_vs_airline",

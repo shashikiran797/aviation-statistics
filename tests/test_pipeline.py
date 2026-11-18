@@ -154,7 +154,7 @@ def test_known_values_from_both_source_series():
     assert ig[(ig.fy == "2017-18") & (ig.segment == "Domestic")].pax.sum() == 48_955_983
     # calendar-year series (provisional): IndiGo 2026 year-to-date domestic = the sheet's TOTAL row
     cal26 = ig[(ig.calendar_year == 2026) & (ig.segment == "Domestic")]
-    assert cal26.pax.sum() == 71_551_696 and cal26.provisional.all() and cal26.period.max().month == 8
+    assert cal26.pax.sum() == 88_086_737 and cal26.provisional.all() and cal26.period.max().month == 10
 
 
 def test_series_are_continuous_and_new_operators_present():

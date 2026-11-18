@@ -9,6 +9,7 @@ import yaml
 from .. import config
 from ..parse.registry import dataset_for
 from . import checks as checks_mod
+from . import coverage
 from . import intl as intl_pub
 from . import places
 from . import site as site_pub
@@ -215,6 +216,9 @@ def build(man: pd.DataFrame) -> dict:
     # --- semantic catalog (validated against what we actually wrote)
     catalog = make_catalog(tables, version)
     catalog["site"] = site_stats
+    sf = out / "site_files.parquet"
+    catalog["coverage"] = coverage.compute(tables, catalog["facts"], man, site_stats, pd.read_parquet(sf) if sf.exists() else None)
+    coverage.update_readme(config.ROOT / "README.md", catalog["coverage"])
     known = yaml.safe_load((config.ROOT / "semantic" / "semantic.yaml").read_text()).get("known_issues", [])
     catalog["known_issues"] = known
     catalog["checks"] = []

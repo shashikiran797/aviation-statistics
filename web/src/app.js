@@ -401,8 +401,22 @@ async function openSources() {
   const sample = src.filter((_, i) => i % Math.max(1, Math.floor(src.length / 8)) === 0).slice(0, 8).map((s) => el("li", {}, el("a", { href: s.s3_url, target: "_blank", rel: "noopener", textContent: s.table_id ? `${s.fy} · ${s.entity} · table ${s.table_id}` : (s.title || s.s3_url) })));
   openModal("Data sources & coverage", el("div", {},
     el("p", { textContent: `Sources: DGCA India – Air Transport Statistics: monthly traffic and operating statistics by airline (ICAO ATR Form A), monthly domestic city-pair traffic, and quarterly international traffic by airline, country and city pair. ${src.length} Excel files parsed; every fact row keeps a source_sha pointing at its file. Built ${S.meta.built}.` }),
-    t, dataQuality(), el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
+    coveragePanel(), t, dataQuality(), el("h4", { textContent: "Sample source files" }), el("ul", {}, ...sample),
     el("p", { className: "hint", textContent: "Two series are merged: fiscal-year tables (FY2014-15 to FY2018-19, final) and calendar-year monthly statistics by operator (2016 onward, provisional); where they overlap the final figures win and disagreements are logged. Years before FY2014-15, fleet/personnel/financial tables, non-scheduled operations and PDF-only tables are in the catalog but not yet in the dashboards." })));
+}
+
+function coveragePanel() {
+  const cov = S.catalog.coverage;
+  const box = el("div", { id: "coverage" });
+  if (!cov) return box;
+  box.append(el("h4", { textContent: "Data status: what is scraped and how recent" }));
+  box.append(tableFrom(["dataset", "granularity", "rows", "first", "latest"], cov.datasets.map((d) => ({
+    dataset: d.label, granularity: d.granularity, rows: d.rows.toLocaleString(), first: d.first,
+    latest: d.latest + (d.latest_provisional ? " (provisional)" : ""),
+  }))));
+  const p = cov.portal || {};
+  box.append(el("p", { className: "hint", textContent: `Last crawl of the DGCA portal: ${(cov.last_crawled || "unknown").slice(0, 10)}. ${cov.source_files_parsed} statistics files parsed; newest source file modified ${cov.newest_source_modified || "unknown"}. The portal catalog lists ${(p.files || 0).toLocaleString()} files, ${(p.files_not_in_dashboards || 0).toLocaleString()} of them (other sections, older years, PDFs) catalogued but not yet in the dashboards.` }));
+  return box;
 }
 
 function dataQuality() {
