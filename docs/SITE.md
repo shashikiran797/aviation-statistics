@@ -75,6 +75,8 @@ The deployable site is the `web/` folder. All URLs in the app are relative, so i
 
 ### One-time setup
 
+This repo already includes steps 1 and 3 (the `.gitignore` exception, the committed `web/data`, and `.github/workflows/pages.yml`). Only step 2 is manual.
+
 1. **Decide where `web/data` comes from.** Simplest: commit it. Add exceptions to `.gitignore` and commit the build output.
    ```gitignore
    data/
