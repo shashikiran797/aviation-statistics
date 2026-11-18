@@ -1,4 +1,4 @@
-"""Static server with HTTP Range support (like GitHub Pages) for local development and e2e tests: python scripts/serve.py [port]"""
+"""Static server with HTTP Range support (like GitHub Pages) for local development and e2e tests: python scripts/serve.py [port] [host]"""
 import os
 import re
 import sys
@@ -46,5 +46,6 @@ class RangeHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"          # pass 0.0.0.0 to serve on the network (static files from web/ only)
     os.chdir(os.path.join(os.path.dirname(__file__), "..", "web"))
-    ThreadingHTTPServer(("127.0.0.1", port), RangeHandler).serve_forever()
+    ThreadingHTTPServer((host, port), RangeHandler).serve_forever()

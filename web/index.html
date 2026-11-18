@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>India Aviation Stats</title>
+<meta name="theme-color" content="#2a78d6">
+<meta name="description" content="Explore DGCA India aviation statistics: traffic, routes and international data.">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aviation Stats">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -80,5 +88,6 @@
 <div id="tip" class="tip" hidden></div>
 <input id="file-in" type="file" accept="application/json" hidden>
 <script type="module" src="src/app.js"></script>
+<script>if("serviceWorker"in navigator&&(location.protocol==="https:"||location.hostname==="localhost"))addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))</script>
 </body>
 </html>
