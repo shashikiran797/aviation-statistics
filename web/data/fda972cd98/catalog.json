@@ -4857,7 +4857,8 @@
     "2025-26 Q3",
     "2025-26 Q4",
     "2026-27 Q1",
-    "2026-27 Q2"
+    "2026-27 Q2",
+    "2026-27 Q3"
    ]
   },
   "month": {
@@ -4891,7 +4892,7 @@
    "ordered": true,
    "description": "First day of the month; use for time series.",
    "min": "2014-04-01",
-   "max": "2026-08-01"
+   "max": "2026-10-01"
   },
   "segment": {
    "label": "Segment",
@@ -5103,7 +5104,7 @@
   }
  ],
  "dashboards": [],
- "version": "a482254b1c",
+ "version": "fda972cd98",
  "tables": {
   "fact_airline_monthly": [
    "airline_key",

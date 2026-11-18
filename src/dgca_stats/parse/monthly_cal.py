@@ -89,7 +89,9 @@ def validate_block(b: dict, rows: pd.DataFrame) -> list[str]:
     problems = []
     if rows.empty:
         return ["no data rows"]
-    for c in ADDITIVE:
+    tot = b["total"].reindex(ADDITIVE).fillna(0)
+    unfilled_total = bool((tot == 0).all())   # in-progress year: DGCA leaves the TOTAL row at 0 until year end
+    for c in ([] if unfilled_total else ADDITIVE):
         a, s = b["total"].get(c), rows[c].sum(min_count=1)
         if pd.isna(a) or pd.isna(s):
             continue
