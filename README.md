@@ -4,6 +4,8 @@ Crawl, structure and query the aviation statistics published by India's DGCA (dg
 BI-style dashboard that runs **entirely in the browser**: no backend, no API keys. The site is static files
 (Parquet + HTML/JS), queried client-side with DuckDB-WASM, so it can be hosted on GitHub Pages.
 
+> **Live site: https://shashikiran797.github.io/aviation-statistics/**
+>
 > Screenshots and a page-by-page tour: [docs/SITE.md](docs/SITE.md) · Design and decisions: [docs/PLAN.md](docs/PLAN.md)
 
 ## What it does
